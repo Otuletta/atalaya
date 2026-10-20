@@ -32,6 +32,7 @@ import (
 	"github.com/otuletta/atalaya/internal/notify"
 	"github.com/otuletta/atalaya/internal/scheduler"
 	"github.com/otuletta/atalaya/internal/store"
+	"github.com/otuletta/atalaya/internal/summary"
 	"github.com/otuletta/atalaya/internal/ui"
 )
 
@@ -47,6 +48,8 @@ Uso:
   atalaya init [carpeta] [--depth N]   detecta repos y genera la config
   atalaya log [-n 30] [--json]         historial de lo que ha pasado
   atalaya serve [--addr localhost:2222] el panel por SSH, solo lectura
+  atalaya prompt [--format text|json|swiftbar]  estado para el prompt o la barra de menús
+  atalaya doctor                       comprueba que todo lo necesario funciona
   atalaya version
 
 La config vive en %s
@@ -124,6 +127,17 @@ func run(args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		return serveCmd(ctx, *cfgPath, *demoMode, *addr, *keys, stdout)
+	case "prompt":
+		fs := flag.NewFlagSet("prompt", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		format := fs.String("format", "text", "text, json o swiftbar")
+		maxAge := fs.Duration("max-age", 5*time.Minute, "más antiguo que esto, Atalaya se considera cerrado")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		return prompt(*format, *maxAge, stdout)
+	case "doctor":
+		return doctor(ctx, *cfgPath, stdout)
 	case "log":
 		fs := flag.NewFlagSet("log", flag.ContinueOnError)
 		fs.SetOutput(stderr)
@@ -246,6 +260,8 @@ func dashboard(ctx context.Context, path string, demoMode bool) error {
 		Store: st,
 	}).Watch(ctx, st)
 
+	keepSummary(ctx, st, cfg, demoMode)
+
 	m := ui.New(ui.Deps{
 		Config:  cfg,
 		Store:   st,
@@ -299,6 +315,23 @@ func status(ctx context.Context, path string, demoMode, asJSON, fetch bool, time
 	}
 	_, err = lipgloss.Fprint(out, ui.Summary(s.cfg, snap, time.Now(), width))
 	return err
+}
+
+// keepSummary maintains status.json for `atalaya prompt` while the
+// dashboard or the server runs. The demo never writes it.
+func keepSummary(ctx context.Context, st *store.Store, cfg *config.Config, demoMode bool) {
+	if demoMode {
+		return
+	}
+	if dir, err := config.StateDir(); err == nil {
+		go summary.Keep(ctx, st, cfg, filepath.Join(dir, "status.json"), 2*time.Second)
+	}
+}
+
+func writeJSON(out io.Writer, v any) error {
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
 }
 
 // showLog prints the activity log, oldest first, like a shell history.

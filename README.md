@@ -73,6 +73,7 @@ atalaya status            # todos los paneles como texto, una vez
 atalaya status --json     # lo mismo en JSON, para scripts
 atalaya status --fetch    # hace git fetch antes de calcular adelante/atrás
 atalaya log               # el historial de eventos, como un `git log` de tus proyectos
+atalaya doctor            # comprueba config, git, GitHub, Docker, Ollama, Claude Code…
 ```
 
 ```bash
@@ -81,6 +82,23 @@ atalaya status --json | jq -r '.state.sources.github.data.repos[] | select(.ci.s
 ```
 
 La TUI y `--json` leen el mismo store; la UI solo es una vista más de los datos.
+
+## En tu prompt, tu barra de menús y tu diagnóstico
+
+Con Atalaya abierto (o `atalaya serve`), `atalaya prompt` responde en milisegundos leyendo el estado que el panel mantiene en `status.json`. Dentro de un proyecto muestra el de ese repo (`✗ CI ↓3 ◉`); fuera, los contadores globales (`✗2 ◉1`). Si Atalaya está cerrado no imprime nada, así que tu prompt no miente.
+
+```toml
+# ~/.config/starship.toml
+[custom.atalaya]
+command = "atalaya prompt"
+when = true
+format = "[$output]($style) "
+style = "bold red"
+```
+
+Para la **barra de menús de macOS** con [SwiftBar](https://swiftbar.app), copia [`examples/swiftbar/atalaya.30s.sh`](examples/swiftbar/atalaya.30s.sh) a tu carpeta de plugins: título con los contadores, un elemento por proyecto (enlazado al run roto o al repo) y «Abrir Atalaya».
+
+`atalaya doctor` comprueba todo de lo que depende Atalaya y dice cómo arreglar lo que falta: config, git, el token de GitHub y el acceso a cada repo (con una consulta real), Docker, Ollama, la CLI de Claude Code, los plugins y las notificaciones.
 
 ## Atalaya desde otra máquina (SSH)
 
@@ -209,6 +227,7 @@ Los tests de la UI usan [teatest](https://github.com/charmbracelet/x/tree/main/e
 | `internal/notify` | Detector de cambios: eventos y notificaciones |
 | `internal/events` | El log de actividad (JSON lines, compactado) |
 | `internal/ai` | Diagnóstico y arreglo de CI con Claude Code |
+| `internal/summary` | El resumen para `atalaya prompt` y SwiftBar |
 | `internal/demo` | Fuentes simuladas para `--demo` y para el GIF |
 
 ### GIF y release

@@ -58,6 +58,8 @@ func serveCmd(ctx context.Context, path string, demoMode bool, addr, authorizedK
 		Store: st,
 	}).Watch(ctx, st)
 
+	keepSummary(ctx, st, s.cfg, demoMode)
+
 	host, port, _ := net.SplitHostPort(l.Addr().String())
 	fmt.Fprintf(out, "Atalaya por SSH en %s, solo lectura, para las claves de %s.\n  ssh -p %s %s\n",
 		l.Addr(), config.ContractHome(keys), port, host)
