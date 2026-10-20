@@ -100,6 +100,7 @@ type Detector struct {
 // Watch observes the store until ctx is done.
 func (d *Detector) Watch(ctx context.Context, st *store.Store) {
 	changed := st.Subscribe()
+	defer st.Unsubscribe(changed)
 	d.publish()
 	d.Observe(st.Snapshot())
 	for {

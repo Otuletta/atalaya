@@ -18,8 +18,6 @@ import (
 	"charm.land/wish/v2/logging"
 
 	"github.com/otuletta/atalaya/internal/config"
-	"github.com/otuletta/atalaya/internal/notify"
-	"github.com/otuletta/atalaya/internal/scheduler"
 	"github.com/otuletta/atalaya/internal/store"
 	"github.com/otuletta/atalaya/internal/ui"
 )
@@ -48,17 +46,8 @@ func serveCmd(ctx context.Context, path string, demoMode bool, addr, authorizedK
 	}
 
 	st := store.New()
-	sched := scheduler.New(st, s.sources...)
-	go sched.Run(ctx)
-	go (&notify.Detector{
-		Notifier: notify.System(),
-		Rules: notify.Rules{CI: s.cfg.Notify.WantCI(), Health: s.cfg.Notify.WantHealth(),
-			Agents: s.cfg.Notify.WantAgents(), Reviews: s.cfg.Notify.WantReviews()},
-		Log:   s.log,
-		Store: st,
-	}).Watch(ctx, st)
-
-	keepSummary(ctx, st, s.cfg, demoMode)
+	e := startEngine(ctx, path, s, st)
+	go e.Watch(ctx, 2*time.Second) // each new session sees the config in use
 
 	host, port, _ := net.SplitHostPort(l.Addr().String())
 	fmt.Fprintf(out, "Atalaya por SSH en %s, solo lectura, para las claves de %s.\n  ssh -p %s %s\n",
@@ -66,12 +55,12 @@ func serveCmd(ctx context.Context, path string, demoMode bool, addr, authorizedK
 	if host != "127.0.0.1" && host != "::1" {
 		fmt.Fprintln(out, "  Escucha fuera de localhost: cualquiera de tu red con una de esas claves puede verlo.")
 	}
-	return serveSSH(ctx, s, st, l, keys, filepath.Join(stateDir, "ssh_host_ed25519"), sched.Refresh)
+	return serveSSH(ctx, e.Config, st, l, keys, filepath.Join(stateDir, "ssh_host_ed25519"), e.Refresh)
 }
 
 // serveSSH serves a read-only dashboard to every SSH connection until ctx is
 // done. All sessions share the store; each one has its own subscription.
-func serveSSH(ctx context.Context, s setup, st *store.Store, l net.Listener, authorizedKeys, hostKey string, refresh func(...string)) error {
+func serveSSH(ctx context.Context, cfg func() *config.Config, st *store.Store, l net.Listener, authorizedKeys, hostKey string, refresh func(...string)) error {
 	srv, err := wish.NewServer(
 		wish.WithHostKeyPath(hostKey),
 		wish.WithAuthorizedKeys(authorizedKeys),
@@ -84,7 +73,7 @@ func serveSSH(ctx context.Context, s setup, st *store.Store, l net.Listener, aut
 					st.Unsubscribe(changes)
 				}()
 				return ui.New(ui.Deps{
-					Config:   s.cfg,
+					Config:   cfg(),
 					Store:    st,
 					Changes:  changes,
 					Refresh:  refresh,

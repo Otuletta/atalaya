@@ -129,6 +129,20 @@ func (s *Store) Put(name string, data collector.Snapshot, err error, next time.T
 	s.notify()
 }
 
+// Remove forgets sources that no longer exist (a plugin taken out of the
+// config).
+func (s *Store) Remove(names ...string) {
+	if len(names) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, n := range names {
+		delete(s.entries, n)
+	}
+	s.notify()
+}
+
 // SetRunning flags a source as collecting right now.
 func (s *Store) SetRunning(name string, running bool) {
 	s.mu.Lock()

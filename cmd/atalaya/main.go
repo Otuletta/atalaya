@@ -32,7 +32,6 @@ import (
 	"github.com/otuletta/atalaya/internal/notify"
 	"github.com/otuletta/atalaya/internal/scheduler"
 	"github.com/otuletta/atalaya/internal/store"
-	"github.com/otuletta/atalaya/internal/summary"
 	"github.com/otuletta/atalaya/internal/ui"
 )
 
@@ -205,12 +204,20 @@ var backgroundSources = []string{"git", "ports", "agents", "docker", "ollama"}
 const backgroundFactor = 5
 
 // setup is what a command works with: the config, the sources, what the
-// action keys do and the activity log.
+// action keys do and the activity log. build makes the sources of a
+// reloaded config; it is nil in the demo, which has no file to reload.
 type setup struct {
-	cfg     *config.Config
-	sources []collector.Collector
-	actions ui.Actions
-	log     *events.Log
+	cfg      *config.Config
+	sources  []collector.Collector
+	actions  ui.Actions
+	log      *events.Log
+	build    func(*config.Config) []collector.Collector
+	stateDir string
+}
+
+// systemActions is what the action keys do for real.
+func systemActions(cfg *config.Config) ui.Actions {
+	return actions.System{EditorSetting: cfg.Editor, Assistant: ai.Assistant{Command: cfg.AI.Command}}
 }
 
 // openLog opens the activity log in the state dir; without one, the log
@@ -232,15 +239,29 @@ func load(path string, demoMode, withFetch bool) (setup, error) {
 	if demoMode {
 		log, _ := events.Open("")
 		demo.SeedEvents(log, time.Now())
-		return setup{demo.Config(), demo.Collectors(time.Now()), demo.Actions{}, log}, nil
+		return setup{cfg: demo.Config(), sources: demo.Collectors(time.Now()), actions: demo.Actions{}, log: log}, nil
 	}
 	cfg, err := loadConfig(path)
 	if err != nil {
 		return setup{}, err
 	}
 	log, stateDir := openLog()
-	acts := actions.System{EditorSetting: cfg.Editor, Assistant: ai.Assistant{Command: cfg.AI.Command}}
-	return setup{cfg, collectors(cfg, withFetch, stateDir), acts, log}, nil
+	build := func(cfg *config.Config) []collector.Collector { return collectors(cfg, withFetch, stateDir) }
+	return setup{cfg: cfg, sources: build(cfg), actions: systemActions(cfg), log: log, build: build, stateDir: stateDir}, nil
+}
+
+// startEngine runs the sources of a setup over st; with a config file, it
+// watches it and starts them again when it changes.
+func startEngine(ctx context.Context, path string, s setup, st *store.Store) *engine {
+	e := &engine{store: st, log: s.log, notifier: notify.System(), build: s.build}
+	if s.build != nil {
+		e.path = path
+		if s.stateDir != "" {
+			e.summaryPath = filepath.Join(s.stateDir, "status.json")
+		}
+	}
+	e.Start(ctx, s.cfg, s.sources)
+	return e
 }
 
 func dashboard(ctx context.Context, path string, demoMode bool) error {
@@ -248,41 +269,36 @@ func dashboard(ctx context.Context, path string, demoMode bool) error {
 	if err != nil {
 		return err
 	}
-	cfg := s.cfg
 	st := store.New()
-	sched := scheduler.New(st, s.sources...)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	go sched.Run(ctx)
-
-	// The detector always runs: it fills the activity log; the rules only
-	// decide which events also become notifications.
-	go (&notify.Detector{
-		Notifier: notify.System(),
-		Rules: notify.Rules{CI: cfg.Notify.WantCI(), Health: cfg.Notify.WantHealth(),
-			Agents: cfg.Notify.WantAgents(), Reviews: cfg.Notify.WantReviews()},
-		Log:   s.log,
-		Store: st,
-	}).Watch(ctx, st)
-
-	keepSummary(ctx, st, cfg, demoMode)
+	e := startEngine(ctx, path, s, st)
 
 	m := ui.New(ui.Deps{
-		Config:  cfg,
+		Config:  s.cfg,
 		Store:   st,
-		Refresh: sched.Refresh,
+		Refresh: e.Refresh,
 		Actions: s.actions,
 		Focus: func(focused bool) {
 			if focused {
-				sched.SlowDown(1, backgroundSources...)
-				sched.Refresh(backgroundSources...) // catch up on what changed meanwhile
+				e.SlowDown(1, backgroundSources...)
+				e.Refresh(backgroundSources...) // catch up on what changed meanwhile
 			} else {
-				sched.SlowDown(backgroundFactor, backgroundSources...)
+				e.SlowDown(backgroundFactor, backgroundSources...)
 			}
 		},
 		Version: version,
 	})
-	_, err = tea.NewProgram(m, tea.WithContext(ctx)).Run()
+	p := tea.NewProgram(m, tea.WithContext(ctx))
+	e.onReload = func(cfg *config.Config, change string, err error) {
+		msg := ui.ConfigMsg{Config: cfg, Change: change, Err: err}
+		if cfg != nil {
+			msg.Actions = systemActions(cfg)
+		}
+		p.Send(msg)
+	}
+	go e.Watch(ctx, 2*time.Second)
+	_, err = p.Run()
 	if errors.Is(err, tea.ErrProgramKilled) {
 		return nil
 	}
@@ -318,17 +334,6 @@ func status(ctx context.Context, path string, demoMode, asJSON, fetch bool, time
 	}
 	_, err = lipgloss.Fprint(out, ui.Summary(s.cfg, snap, time.Now(), width))
 	return err
-}
-
-// keepSummary maintains status.json for `atalaya prompt` while the
-// dashboard or the server runs. The demo never writes it.
-func keepSummary(ctx context.Context, st *store.Store, cfg *config.Config, demoMode bool) {
-	if demoMode {
-		return
-	}
-	if dir, err := config.StateDir(); err == nil {
-		go summary.Keep(ctx, st, cfg, filepath.Join(dir, "status.json"), 2*time.Second)
-	}
 }
 
 func writeJSON(out io.Writer, v any) error {

@@ -44,6 +44,15 @@ type Actions interface {
 	MergePR(ctx context.Context, repo string, number int) error
 }
 
+// ConfigMsg tells the UI that the config file was reloaded, with what
+// changed, or why it was not (the previous config keeps running).
+type ConfigMsg struct {
+	Config  *config.Config
+	Actions Actions
+	Change  string
+	Err     error
+}
+
 // Deps is everything the UI needs from the outside.
 type Deps struct {
 	Config  *config.Config
@@ -205,6 +214,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			cmd = m.setStatus(msg.text, false)
 		}
+	case ConfigMsg:
+		if msg.Err != nil {
+			why := strings.TrimPrefix(msg.Err.Error(), m.deps.Config.Path+": ")
+			cmd = m.setStatus("la config tiene un error, sigue la anterior: "+why, true)
+			break
+		}
+		m.deps.Config = msg.Config
+		if msg.Actions != nil && !m.deps.ReadOnly {
+			m.deps.Actions = msg.Actions
+		}
+		m.refreshDetail()
+		cmd = m.setStatus("config recargada · "+msg.Change, false)
 	case clearStatusMsg:
 		if msg.id == m.statusID {
 			m.status = ""

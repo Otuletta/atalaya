@@ -171,6 +171,8 @@ Lo que Atalaya aprende vive aparte, en `~/.local/state/atalaya/` (o `$XDG_STATE_
 
 La validación informa de **todos** los errores a la vez, incluidas claves mal escritas (`helth = …`).
 
+**No hace falta reiniciar**: al guardar el archivo, Atalaya lo recarga en un par de segundos y lo dice en la línea de estado (`config recargada · 13 proyectos (+atalaya)`). Si lo guardas con un error, te lo muestra y sigue con la config anterior hasta que lo arregles. Con `atalaya serve`, las sesiones SSH nuevas ven la config nueva.
+
 ## Arquitectura
 
 ```

@@ -15,6 +15,7 @@ import (
 
 	gossh "golang.org/x/crypto/ssh"
 
+	"github.com/otuletta/atalaya/internal/config"
 	"github.com/otuletta/atalaya/internal/scheduler"
 	"github.com/otuletta/atalaya/internal/store"
 )
@@ -52,7 +53,9 @@ func startServer(t *testing.T, allowed gossh.Signer) string {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serveSSH(ctx, s, st, l, keys, filepath.Join(dir, "host_key"), nil) }()
+	go func() {
+		done <- serveSSH(ctx, func() *config.Config { return s.cfg }, st, l, keys, filepath.Join(dir, "host_key"), nil)
+	}()
 	t.Cleanup(func() {
 		cancel()
 		select {

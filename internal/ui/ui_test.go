@@ -690,6 +690,19 @@ func TestPaletteGolden(t *testing.T) {
 	})
 }
 
+func TestConfigReload(t *testing.T) {
+	h := start(t)
+	h.tm.Send(ConfigMsg{Err: errors.New("config.toml: line 3: expected '='")})
+	h.waitFor(t, "la config tiene un error, sigue la anterior")
+	cfg := testConfig()
+	cfg.Projects = append(cfg.Projects, config.Project{Name: "atalaya", Path: "/w/atalaya"})
+	h.tm.Send(ConfigMsg{Config: cfg, Change: "4 proyectos (+atalaya)"})
+	h.waitFor(t, "config recargada · 4 proyectos (+atalaya)")
+	if m := h.final(t); m.projectPath("atalaya") != "/w/atalaya" {
+		t.Error("the UI still uses the previous config")
+	}
+}
+
 func TestAnalyzeNeedsABrokenCI(t *testing.T) {
 	h := start(t)
 	h.keys("2", "j", "j", "a") // the branch line runs, it does not fail
