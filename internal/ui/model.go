@@ -14,6 +14,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -96,8 +97,16 @@ type (
 	}
 )
 
+// confirmation is the dialog an action waits on.
 type confirmation struct {
 	prompt string
+	// busy is what the spinner says while the action runs; empty for
+	// actions that end at once.
+	busy string
+	// danger marks what cannot be undone (kill, merge): the dialog is red
+	// and No has the focus, so enter does not confirm by accident.
+	danger bool
+	yes    bool // the focus is on Sí
 	run    tea.Cmd
 }
 
@@ -134,6 +143,16 @@ type Model struct {
 	status    string
 	statusErr bool
 	statusID  int
+
+	// busy counts the actions still running; the spinner turns meanwhile.
+	spin     spinner.Model
+	busy     int
+	busyText string
+	// toasts are the latest events, shown for a few seconds in a corner.
+	toasts       []toast
+	toastID      int
+	toastedUntil time.Time
+	lastClick    click
 }
 
 // New builds the model. The store may already hold data.
@@ -158,6 +177,8 @@ func New(d Deps) Model {
 		m.state = d.Store.Snapshot()
 	}
 	m.seenUntil = m.now // history from before this run is not news
+	m.toastedUntil = m.now
+	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(sCyan))
 	return m
 }
 
@@ -201,7 +222,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshing = false
 		}
 		m.refreshDetail()
-		cmd = m.waitForState()
+		cmd = tea.Batch(m.waitForState(), m.newToasts())
 	case tickMsg:
 		m.now = m.deps.Now()
 		cmd = tick()
@@ -263,6 +284,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.filtering:
 			m.filter, cmd = m.filter.Update(msg)
 		}
+	case busyDoneMsg:
+		m.busy = max(m.busy-1, 0)
+		if m.busy == 0 {
+			m.busyText = ""
+		}
+		next, cmd := m.Update(msg.msg)
+		return next, cmd
+	case spinner.TickMsg:
+		if m.busy > 0 {
+			m.spin, cmd = m.spin.Update(msg)
+		}
+	case toastExpiredMsg:
+		m.toasts = slices.DeleteFunc(m.toasts, func(t toast) bool { return t.id == msg.id })
+	case tea.MouseClickMsg:
+		m, cmd = m.click(tea.Mouse(msg))
 	case tea.MouseWheelMsg:
 		switch {
 		case m.detailOpen:
@@ -282,14 +318,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	k := m.keys
-	// A pending confirmation takes every key: only y confirms.
+	// A pending confirmation takes every key.
 	if m.confirm != nil {
-		c := m.confirm
-		m.confirm = nil
-		if msg.String() == "y" || msg.String() == "s" {
-			return m, c.run
-		}
-		return m, m.setStatus("cancelado", false)
+		return m.confirmKey(msg)
 	}
 	if m.filtering {
 		switch msg.String() {
@@ -389,11 +420,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.filter.SetValue("")
 	case key.Matches(msg, k.Enter):
 		if r, ok := m.selectedRow(); ok {
-			m.detailOpen = true
-			m.detailKey = r.key
-			m.resizeViewport()
-			m.viewport.SetContent(m.detail(r.item))
-			m.viewport.GotoTop()
+			m.openDetail(r)
 		}
 	case key.Matches(msg, k.Open):
 		return m, m.open(m.selectedItem())
@@ -684,13 +711,15 @@ func (m Model) askPull(item any) (Model, tea.Cmd) {
 	a := m.deps.Actions
 	m.confirm = &confirmation{
 		prompt: fmt.Sprintf("¿git pull --ff-only en %s?", project),
-		run: tea.Sequence(m.statusCmd("git pull en "+project+"…"), func() tea.Msg {
+		busy:   "git pull en " + project + "…",
+		yes:    true,
+		run: func() tea.Msg {
 			out, err := a.Pull(context.Background(), dir)
 			if err != nil {
 				return actionMsg{err: fmt.Errorf("pull %s: %w", project, err), refresh: []string{"git"}}
 			}
 			return actionMsg{text: fmt.Sprintf("pull %s: %s", project, out), refresh: []string{"git", "github"}}
-		}),
+		},
 	}
 	return m, nil
 }
@@ -703,6 +732,7 @@ func (m Model) askKill(item any) (Model, tea.Cmd) {
 	a := m.deps.Actions
 	m.confirm = &confirmation{
 		prompt: fmt.Sprintf("¿Matar %s (pid %d) en :%d?", p.Process, p.PID, p.Port),
+		danger: true,
 		run: func() tea.Msg {
 			if err := a.Kill(context.Background(), p.PID, p.Started); err != nil {
 				return actionMsg{err: fmt.Errorf("kill %d: %w", p.PID, err), refresh: []string{"ports"}}
@@ -756,7 +786,9 @@ func (m Model) askPullAll() (Model, tea.Cmd) {
 	a := m.deps.Actions
 	m.confirm = &confirmation{
 		prompt: fmt.Sprintf("¿git pull --ff-only en %s (%s)?", plural(len(repos), "repo", "repos"), names(list, 4)),
-		run: tea.Sequence(m.statusCmd("git pull en "+plural(len(repos), "repo", "repos")+"…"), func() tea.Msg {
+		busy:   "git pull en " + plural(len(repos), "repo", "repos") + "…",
+		yes:    true,
+		run: func() tea.Msg {
 			var ok int
 			var failed []string
 			for _, r := range repos {
@@ -769,7 +801,7 @@ func (m Model) askPullAll() (Model, tea.Cmd) {
 			msg := batchResult("pull", ok, failed)
 			msg.refresh = []string{"git", "github"}
 			return msg
-		}),
+		},
 	}
 	return m, nil
 }
@@ -783,6 +815,8 @@ func (m Model) askRerun(item any) (Model, tea.Cmd) {
 	a := m.deps.Actions
 	m.confirm = &confirmation{
 		prompt: fmt.Sprintf("¿Relanzar los jobs fallidos del CI de %s en %s?", f.Project, f.Branch),
+		busy:   "relanzando el CI de " + f.Project + "…",
+		yes:    true,
 		run: func() tea.Msg {
 			if err := a.RerunFailed(context.Background(), f.RunURL); err != nil {
 				return actionMsg{err: fmt.Errorf("rerun %s: %w", f.Project, err)}
@@ -832,7 +866,9 @@ func (m Model) askMerge(item any) (Model, tea.Cmd) {
 	a := m.deps.Actions
 	m.confirm = &confirmation{
 		prompt: fmt.Sprintf("¿Merge (squash) de %s: %s?", what, names(nums, 6)),
-		run: tea.Sequence(m.statusCmd("fusionando "+what+"…"), func() tea.Msg {
+		busy:   "fusionando " + what + "…",
+		danger: true,
+		run: func() tea.Msg {
 			var ok int
 			var failed []string
 			for _, pr := range prs {
@@ -845,7 +881,7 @@ func (m Model) askMerge(item any) (Model, tea.Cmd) {
 			msg := batchResult("merge", ok, failed)
 			msg.refresh = []string{"github"}
 			return msg
-		}),
+		},
 	}
 	return m, nil
 }
@@ -879,11 +915,10 @@ func (m Model) analyze(item any) (Model, tea.Cmd) {
 		return m, m.statusCmd(notCI)
 	}
 	a := m.deps.Actions
-	m.status, m.statusErr = "pidiendo a Claude un diagnóstico del CI de "+f.Project+"…", false
-	return m, func() tea.Msg {
+	return m.startBusy("pidiendo a Claude un diagnóstico del CI de "+f.Project+"…", func() tea.Msg {
 		text, err := a.Diagnose(context.Background(), f)
 		return diagnosisMsg{failure: f, text: text, err: err}
-	}
+	})
 }
 
 // askFix confirms before handing the terminal to Claude Code.
@@ -898,10 +933,12 @@ func (m Model) askFix(item any) (Model, tea.Cmd) {
 	a := m.deps.Actions
 	m.confirm = &confirmation{
 		prompt: fmt.Sprintf("¿Abrir Claude Code en %s para arreglar el CI de %s?", f.Project, f.Branch),
-		run: tea.Sequence(m.statusCmd("descargando el log del CI…"), func() tea.Msg {
+		busy:   "descargando el log del CI…",
+		yes:    true,
+		run: func() tea.Msg {
 			cmd, err := a.Fix(context.Background(), f)
 			return fixReadyMsg{cmd: cmd, err: err}
-		}),
+		},
 	}
 	return m, nil
 }
@@ -936,8 +973,11 @@ func (m Model) View() tea.View {
 	v.MouseMode = tea.MouseModeCellMotion
 	v.ReportFocus = true
 	v.WindowTitle = m.windowTitle()
-	if pct, done := m.loadProgress(); !done {
+	switch pct, done := m.loadProgress(); {
+	case !done:
 		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarDefault, pct)
+	case m.busy > 0: // the terminal's tab spins too
+		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, 0)
 	}
 	return v
 }
@@ -970,13 +1010,34 @@ func (m Model) render() string {
 	}
 	b.WriteString(fit(m.statusLine(), m.width) + "\n")
 	b.WriteString(fit(m.helpLine(), m.width))
-	if m.palette != nil {
-		return overlay(b.String(), m.paletteView(), (m.width-m.paletteWidth())/2, 2)
+	screen := b.String()
+	if len(m.toasts) > 0 && m.palette == nil && m.confirm == nil {
+		for _, t := range m.toastLayout() {
+			screen = overlay(screen, t.box, t.x, t.y, false)
+		}
 	}
-	return b.String()
+	switch {
+	case m.confirm != nil:
+		d := m.dialogLayout()
+		return overlay(screen, d.box, d.x, d.y, true)
+	case m.palette != nil:
+		return overlay(screen, m.paletteView(), (m.width-m.paletteWidth())/2, bodyTop, true)
+	}
+	return screen
 }
 
 func (m Model) tabs() string {
+	brand, clock, names := m.tabVariant(m.clockText())
+	left := brand + m.tabLabels(names)
+	pad := m.width - ansi.StringWidth(left) - ansi.StringWidth(clock)
+	if pad < 0 {
+		return fit(left, m.width)
+	}
+	return left + strings.Repeat(" ", pad) + clock
+}
+
+// clockText is the right end of the tab bar.
+func (m Model) clockText() string {
 	clock := sDim.Render(m.now.Format("15:04:05"))
 	if m.deps.ReadOnly {
 		clock = sMagenta.Render("ssh · solo lectura ") + clock
@@ -984,8 +1045,13 @@ func (m Model) tabs() string {
 	if m.refreshing {
 		clock = sYellow.Render("⟳ ") + clock
 	}
-	// On a narrow terminal give up, in order: the brand's name, the clock,
-	// and the names of the inactive tabs. Numbers and badges always stay.
+	return clock
+}
+
+// tabVariant picks what the tab bar has room for. On a narrow terminal it
+// gives up, in order: the brand's name, the clock, and the names of the
+// inactive tabs. Numbers and badges always stay.
+func (m Model) tabVariant(clock string) (brand, clockShown string, names bool) {
 	for _, v := range []struct {
 		brand, clock string
 		names        bool
@@ -997,26 +1063,30 @@ func (m Model) tabs() string {
 	} {
 		left := v.brand + m.tabLabels(v.names)
 		if pad := m.width - ansi.StringWidth(left) - ansi.StringWidth(v.clock); pad >= 1 || (pad == 0 && v.clock == "") {
-			return left + strings.Repeat(" ", max(pad, 0)) + v.clock
+			return v.brand, v.clock, v.names
 		}
 	}
-	return fit(sBrand.Render("◆")+m.tabLabels(false), m.width)
+	return sBrand.Render("◆"), "", false
 }
 
 // tabLabels renders the tabs; without names only the active one is named.
 func (m Model) tabLabels(names bool) string {
 	var b strings.Builder
 	for p := range panelCount {
-		style, label := sTab, fmt.Sprint(int(p))
-		if p == m.panel {
-			style = sTabOn
-		}
-		if names || p == m.panel {
-			label += " " + panelNames[p]
-		}
-		b.WriteString(style.Render(label) + m.badge(p))
+		b.WriteString(m.tabLabel(p, names))
 	}
 	return b.String()
+}
+
+func (m Model) tabLabel(p Panel, names bool) string {
+	style, label := sTab, fmt.Sprint(int(p))
+	if p == m.panel {
+		style = sTabOn
+	}
+	if names || p == m.panel {
+		label += " " + panelNames[p]
+	}
+	return style.Render(label) + m.badge(p)
 }
 
 func (m Model) panelLines(body int) []string {
@@ -1052,8 +1122,8 @@ func (m Model) panelLines(body int) []string {
 
 func (m Model) statusLine() string {
 	switch {
-	case m.confirm != nil:
-		return sYellow.Bold(true).Render(m.confirm.prompt) + sDim.Render("  y confirma · cualquier otra tecla cancela")
+	case m.busy > 0:
+		return m.spin.View() + " " + m.busyText
 	case m.filtering:
 		return m.filter.View()
 	case m.status != "":
@@ -1122,31 +1192,44 @@ func (m Model) overviewStatus() string {
 
 func (m Model) helpLine() string {
 	k := m.keys
-	var full, compact []key.Binding
-	if m.detailOpen {
-		// In a detail q closes it, like esc; ctrl+c still quits.
-		full = []key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar"),
-			short(k.Open, "abrir"), short(k.Pull, "pull"), short(k.Kill, "matar"), aiBinding}
-		compact = []key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar"), actionsBinding}
-	} else {
-		full = k.ShortHelp()
-		compact = []key.Binding{short(k.Next, "panel"), short(k.Filter, "filtrar"), short(k.Enter, "detalle"),
-			actionsBinding, short(k.Help, "ayuda"), short(k.Quit, "salir")}
+	helpQuit := []key.Binding{short(k.Help, "ayuda"), short(k.Quit, "salir")}
+	// The keys that act on the selected item come first, then the general
+	// ones; the longest list that fits wins.
+	var hints []key.Binding
+	if m.panel != PanelOverview || m.detailOpen {
+		hints = m.itemHints(m.selectedItem())
 	}
-	// Use the longest list that fits; the shorter ones point to ? for the
-	// rest. They are measured untruncated.
+	var lists [][]key.Binding
+	switch {
+	case m.detailOpen:
+		// In a detail q closes it, like esc; ctrl+c still quits.
+		back := []key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar")}
+		lists = [][]key.Binding{concat(back, hints), concat(back[:1], hints),
+			{short(k.Back, "volver"), short(k.Down, "desplazar"), actionsBinding}}
+	case len(hints) > 0:
+		enter := []key.Binding{short(k.Enter, "detalle")}
+		general := []key.Binding{short(k.Next, "panel"), short(k.Palette, "buscar"), short(k.Filter, "filtrar")}
+		lists = [][]key.Binding{
+			concat(enter, hints, general, helpQuit),
+			concat(enter, hints, general[1:2], helpQuit),
+			concat(hints, helpQuit),
+			concat(hints, helpQuit[:1]),
+		}
+	}
+	lists = append(lists, k.ShortHelp(),
+		[]key.Binding{short(k.Next, "panel"), short(k.Filter, "filtrar"), short(k.Enter, "detalle"),
+			actionsBinding, short(k.Help, "ayuda"), short(k.Quit, "salir")},
+		helpQuit)
+	// They are measured untruncated.
 	h := m.help
 	h.SetWidth(0)
-	for _, bs := range [][]key.Binding{full, compact, {short(k.Help, "ayuda"), short(k.Quit, "salir")}} {
+	for _, bs := range lists {
 		if s := h.ShortHelpView(bs); ansi.StringWidth(s) <= m.width {
 			return s
 		}
 	}
 	return m.help.ShortHelpView([]key.Binding{short(k.Help, "ayuda")})
 }
-
-// aiBinding groups a and c, the Claude actions on a broken CI.
-var aiBinding = key.NewBinding(key.WithKeys("a", "c"), key.WithHelp("a/c", "Claude"))
 
 // actionsBinding groups o, p and x in the compact footer.
 var actionsBinding = key.NewBinding(key.WithKeys("o", "p", "x"), key.WithHelp("o/p/x", "acciones"))

@@ -1,0 +1,24 @@
+◆ 0  1 ●1 ●1 2 ✗1 ◉2 3 ✗1 4 Local  5 ●3 ◉1 6  7 ✗1                              
+────────────────────────────────────────────────────────────────────────────────
+  PUERTOS (3)                                                                   
+  PUERTO  PROCESO        PID  PROYECTO  DIRECTORIO                              
+› :3000   → node        4242  odomto    /w/odomto/web                           
+  :5432   → postgres     865  —         /opt/homebrew/var/postgresql@17         
+  :8080   → kdx-server  5151  kdx       /w/kdx                                  
+                 ╭────────────────────────────────────────────╮                 
+  DOCKER (1)     │  Confirmar · no se puede deshacer          │                 
+  CONTENEDOR   IM│                                            │                 
+  odomto-db-1  po│  ¿Matar node (pid 4242) en :3000?          │>5432/tcp        
+                 │                                            │                 
+  OLLAMA (1)     │                Sí       No                 │                 
+  MODELO    PARÁM│                                            │                 
+  qwen3:8b  8.2B │  y sí · n o esc no · ←→ elegir             │                 
+                 ╰────────────────────────────────────────────╯
+
+
+
+
+
+
+ports ahora · docker ahora · ollama ahora                                       
+enter detalle · o abrir · x matar · : buscar · ? ayuda · q salir                

@@ -68,7 +68,11 @@ atalaya --demo               # o pruébalo con datos simulados, sin config
 | `?` | Ayuda |
 | `q` | Salir |
 
-Las acciones destructivas siempre piden confirmación. `p` usa `--ff-only`, así que nunca crea un merge ni deja conflictos. `x` comprueba que el PID sigue siendo el mismo proceso que viste, para no matar uno reciclado.
+**También con el ratón**: un clic en una pestaña, una tarjeta del Resumen o una fila la selecciona; doble clic la abre. La rueda desplaza. En la paleta, un clic elige el resultado.
+
+La última línea cambia con lo que tienes seleccionado y te dice qué puedes hacer ahí: sobre un CI roto, `a diagnóstico · c arreglar · R relanzar`; sobre un puerto, `o abrir · x matar`. Mientras una acción trabaja (un pull, un merge, el diagnóstico de Claude) gira un indicador, también en la pestaña del terminal si lo soporta. Lo que pasa mientras miras otro panel (un CI que se rompe, producción que cae, un agente que te espera) aparece unos segundos como aviso en la esquina; un clic en él lo abre en Actividad.
+
+Las acciones destructivas siempre piden confirmación, en un diálogo: `y` confirma, `n` o `esc` cancelan. Las que no se pueden deshacer (matar un proceso, un merge) se ven en rojo y empiezan con el foco en «No», para que un `enter` de más no las lance. `p` usa `--ff-only`, así que nunca crea un merge ni deja conflictos. `x` comprueba que el PID sigue siendo el mismo proceso que viste, para no matar uno reciclado.
 
 ## Modo script
 

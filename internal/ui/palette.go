@@ -171,15 +171,20 @@ func (m Model) paletteRun() (Model, tea.Cmd) {
 
 func (m Model) paletteWidth() int { return min(m.width-4, 100) }
 
+// paletteWindow is the first result shown and how many fit: between the
+// tabs and the status line, 6 rows go to the border, the query and the
+// footer.
+func (m Model) paletteWindow() (start, n int) {
+	n = max(min(paletteRows, m.height-10), 1)
+	return max(0, m.palette.sel-n+1), n
+}
+
 // paletteView is the palette's box.
 func (m Model) paletteView() string {
 	p := m.palette
 	inner := m.paletteWidth() - 4
 	lines := []string{fit(p.input.View(), inner), sDim.Render(strings.Repeat("─", inner))}
-	// Between the tabs and the status line: 6 rows go to the border, the
-	// query and the footer.
-	n := max(min(paletteRows, m.height-10), 1)
-	start := max(0, p.sel-n+1)
+	start, n := m.paletteWindow()
 	for i := start; i < start+n; i++ {
 		if i >= len(p.results) {
 			if i == 0 {
@@ -242,12 +247,14 @@ func highlight(label string, pos []int, selected bool) string {
 	return b.String()
 }
 
-// overlay draws fg over a dimmed bg, with fg's top-left corner at x, y,
-// cropped to bg.
-func overlay(bg, fg string, x, y int) string {
+// overlay draws fg over bg, with fg's top-left corner at x, y, cropped to
+// bg. A modal dims what it covers.
+func overlay(bg, fg string, x, y int, dim bool) string {
 	lines := strings.Split(bg, "\n")
 	for i, l := range lines {
-		lines[i] = sDim.Render(ansi.Strip(l))
+		if dim {
+			lines[i] = sDim.Render(ansi.Strip(l))
+		}
 	}
 	out := strings.Split(lipgloss.NewCompositor(
 		lipgloss.NewLayer(strings.Join(lines, "\n")),

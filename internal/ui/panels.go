@@ -900,7 +900,7 @@ func (m Model) activityPanel() panelView {
 	ws := t.layout(m.contentWidth())
 	pv.header = t.header(ws)
 	for i, l := range t.lines(ws) {
-		pv.rows = append(pv.rows, row{key: fmt.Sprintf("event:%d:%s", evs[i].At.UnixNano(), evs[i].Kind),
+		pv.rows = append(pv.rows, row{key: eventKey(evs[i]),
 			selectable: true, item: evs[i], line: l})
 	}
 	return pv

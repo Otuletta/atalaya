@@ -254,7 +254,12 @@ func startSized(t *testing.T, w, ht int) *harness {
 
 func startWith(t *testing.T, st *store.Store, w, ht int) *harness {
 	t.Helper()
-	h := &harness{actions: &fakeActions{}}
+	return startFull(t, st, &fakeActions{}, w, ht)
+}
+
+func startFull(t *testing.T, st *store.Store, fa *fakeActions, w, ht int) *harness {
+	t.Helper()
+	h := &harness{actions: fa}
 	m := New(Deps{
 		Config:  testConfig(),
 		Store:   st,
@@ -378,6 +383,12 @@ func TestNothingOverflows(t *testing.T) {
 		help.showHelp = true
 		views["ayuda"] = help
 		views["paleta"], _ = m.openPalette()
+		dialog := m
+		dialog.confirm = &confirmation{prompt: "¿Merge (squash) de 12 PRs de dependabot en otuletta/odomto: #1, #2, #3, #4, #5, #6 y 6 más?", danger: true}
+		views["confirmación"] = dialog
+		toasts := m
+		toasts.toasts = []toast{{id: 1, ev: events.Event{Severity: events.Bad, Title: "CI roto en odomto, un título muy largo que no cabe", Body: "main · CI"}}}
+		views["avisos"] = toasts
 		for name, v := range views {
 			lines := strings.Split(v.View().Content, "\n")
 			for i, l := range lines {

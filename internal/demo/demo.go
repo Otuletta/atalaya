@@ -321,10 +321,24 @@ type Actions struct{}
 func (Actions) Editor(dir string) (*exec.Cmd, bool)          { return exec.Command("editor", dir), false }
 func (Actions) Start(*exec.Cmd) error                        { return nil }
 func (Actions) OpenURL(string) error                         { return nil }
-func (Actions) Pull(context.Context, string) (string, error) { return "Already up to date.", nil }
 func (Actions) Kill(context.Context, int32, time.Time) error { return nil }
-func (Actions) RerunFailed(context.Context, string) error    { return nil }
-func (Actions) MergePR(context.Context, string, int) error   { return nil }
+
+// Pull, RerunFailed and MergePR take a moment, like the real ones, so the
+// spinner shows.
+func (Actions) Pull(context.Context, string) (string, error) {
+	time.Sleep(900 * time.Millisecond)
+	return "Fast-forward, 3 commits", nil
+}
+
+func (Actions) RerunFailed(context.Context, string) error {
+	time.Sleep(700 * time.Millisecond)
+	return nil
+}
+
+func (Actions) MergePR(context.Context, string, int) error {
+	time.Sleep(500 * time.Millisecond)
+	return nil
+}
 
 // Diagnose answers like Claude would about the demo's broken CI.
 func (Actions) Diagnose(context.Context, ai.Failure) (string, error) {
