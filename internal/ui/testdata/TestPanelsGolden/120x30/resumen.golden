@@ -1,4 +1,4 @@
-◆ ATALAYA  0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●3 ◉1 6 Actividad         12:00:00
+◆ 0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●3 ◉1 6 Actividad  7 Plugins ✗1    12:00:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ 
 │ 1 Repos ●1 ●1                       │ │ 2 GitHub ✗1 ◉2                      │ │ 3 Producción ✗1                     │ 
@@ -15,16 +15,16 @@
 │ :5432 → postgres                    │ │ — — 1m30s                           │ │                                     │ 
 │ ollama qwen3:8b                     │ │                                     │ │                                     │ 
 ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ 
+╭─────────────────────────────────────╮                                                                                 
+│ 7 Plugins ✗1                        │                                                                                 
+│ ✗ npm audit · 2 proyectos · 1 con … │                                                                                 
+│ ✗ roto · token caducado             │                                                                                 
+╰─────────────────────────────────────╯                                                                                 
 
 
 
 
 
 
-
-
-
-
-
-9 fuentes al día · enter abre una tarjeta                                                                               
+plugin:roto: token caducado                                                                                             
 tab panel · j/↓ navegar · / filtrar · enter detalle · o abrir · p pull · x matar · r refrescar · ? ayuda · q salir      

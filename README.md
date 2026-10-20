@@ -16,6 +16,7 @@ Sustituye el ritual de abrir GitHub, revisar el CI, comprobar que producción re
 | **3 Producción** | Health checks HTTP: código, latencia, **uptime de 24 h y p95**, sparkline y **días restantes del certificado TLS**. El historial se guarda: el detalle tiene uptime de 7 días e incidentes. |
 | **4 Local** | Puertos en escucha mapeados a proceso y proyecto (`:3000 → node · odomto`), contenedores Docker y modelos cargados en Ollama. |
 | **6 Actividad** | La memoria de la torre: CI rotos y arreglados, caídas y recuperaciones, reviews que te piden, PRs nuevos y cerrados, agentes que empiezan, terminan o te esperan. La pestaña cuenta lo que no has visto. |
+| **7 Plugins** | Tus propias fuentes: cualquier programa que imprima una tabla en JSON. Vienen tres de ejemplo: disco, Homebrew y `npm audit` por proyecto. |
 | **5 Agentes** | Sesiones de Claude Code o Cline: repo, rama o worktree (⎇), CPU y, leyendo la transcripción de Claude Code, **qué está haciendo** («editando model.go», «Bash: go test») o si **te espera** (◉) o parece atascada en un permiso (⏸). Los worktrees de cada repo se ven en su detalle. |
 
 **Detalles de terminal moderna.** Los números de PR, los runs de CI, los endpoints y los puertos son enlaces clicables (OSC 8, cmd+clic en iTerm2, Ghostty, WezTerm…). La pestaña de la terminal muestra el estado (`atalaya ✗2 CI · ✗1 prod`) aunque esté en segundo plano, y mientras carga o refresca aparece la barra de progreso nativa de la terminal.
@@ -50,7 +51,7 @@ atalaya --demo               # o pruébalo con datos simulados, sin config
 
 | Tecla | Acción |
 |---|---|
-| `tab` / `shift+tab` / `0-6` | Cambiar de panel |
+| `tab` / `shift+tab` / `0-7` | Cambiar de panel |
 | `j` `k` o flechas, `g` `G`, `ctrl+u` `ctrl+d` | Navegar |
 | `/` | Filtrar proyectos (`esc` limpia el filtro) |
 | `enter` | Detalle del item: archivos cambiados, PRs, historial de latencia, comando del proceso… |
@@ -107,6 +108,11 @@ bot_authors = ["dependabot", "renovate", "github-actions"]  # sus PRs van en una
 [ai]                                   # teclas a y c
 command = ["claude"]                   # la CLI de Claude Code (reutiliza su sesión, sin API keys)
 
+[[plugin]]                             # una fuente propia (ver examples/plugins)
+name = "npm-audit"
+command = ["python3", "~/atalaya/examples/plugins/npm-audit.py"]
+interval = "30m"
+
 [notify]                               # notificaciones del sistema (macOS; notify-send en Linux)
 enabled = true
 ci = true                              # un CI se rompe o se arregla
@@ -154,6 +160,7 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 ```
 
 - **Interfaz `Collector`** (`internal/collector`): `Name()`, `Interval()` y `Collect(ctx) (Snapshot, error)`. Añadir una fuente (Vercel, Sentry, Railway) es implementar esos tres métodos y registrarla en `cmd/atalaya`. Ni el scheduler ni el store cambian.
+- **…o sin escribir Go: plugins.** Un `[[plugin]]` es un collector más que ejecuta un comando, le pasa tus proyectos en `$ATALAYA_PROJECTS` y lee una tabla en JSON. La UI la pinta con su panel genérico. El protocolo está en [`examples/plugins`](examples/plugins/README.md).
 - **Concurrencia.** Cada collector corre en su goroutine con su timeout. Si GitHub se cae o un collector entra en pánico, el resto sigue: ese panel conserva el último dato bueno y muestra el error y la hora del reintento.
 - **Store con señal coalescente.** Los collectors nunca se bloquean esperando a la UI. La UI recibe una señal, lee una copia completa del estado y no puede perderse una actualización.
 - **Git sin efectos secundarios.** `git status --porcelain=v2 -z` con `GIT_OPTIONAL_LOCKS=0`: consultar cada 5 s nunca toma `index.lock` ni choca con tus comandos. El parser propio (`internal/gitparse`) se prueba con fixtures generados desde repos reales en cada estado (renombrado, conflicto, detached, upstream borrado…) y con fuzzing.

@@ -159,6 +159,9 @@ func collectors(cfg *config.Config, withFetch bool, stateDir string) []collector
 		&collector.Ollama{Host: cfg.OllamaHost, Every: iv.Ollama.Duration},
 		&collector.Agents{Projects: cfg.Projects, Patterns: cfg.Agents.Patterns, Every: iv.Agents.Duration},
 	}
+	for _, p := range cfg.Plugins {
+		cs = append(cs, &collector.Plugin{Plugin: p, Projects: cfg.Projects})
+	}
 	if withFetch {
 		cs = append(cs, &collector.Fetch{Projects: cfg.Projects, Every: iv.Fetch.Duration})
 	}

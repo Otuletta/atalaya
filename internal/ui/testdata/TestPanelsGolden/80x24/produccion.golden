@@ -1,4 +1,4 @@
-◆ 0  1 ●1 ●1 2 ✗1 ◉2 3 Producción ✗1 4  5 ●3 ◉1 6                               
+◆ 0  1 ●1 ●1 2 ✗1 ◉2 3 Producción ✗1 4  5 ●3 ◉1 6  7 ✗1                         
 ────────────────────────────────────────────────────────────────────────────────
   PROYECTO  ENDPOINT                  ESTADO   LATENCIA    24H  TENDENCIA    TLS
 › odomto    https://api.odomto.com/…  ● 200      142 ms  99.9%  ▃▃▄▃█▃▃×▃▃  61 d

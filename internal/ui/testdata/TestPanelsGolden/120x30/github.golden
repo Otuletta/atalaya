@@ -1,4 +1,4 @@
-◆ ATALAYA  0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●3 ◉1 6 Actividad         12:00:00
+◆ 0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●3 ◉1 6 Actividad  7 Plugins ✗1    12:00:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   REPO    CI             PRS  REVIEW  FALLOS                                                                            
 › odomto  ✗ CI 3m15s       5     ◉ 1  ✗ test · 3 PR con checks rotos                                                    

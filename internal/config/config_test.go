@@ -155,6 +155,48 @@ func TestNotify(t *testing.T) {
 	}
 }
 
+func TestPlugins(t *testing.T) {
+	cfg, err := Parse([]byte(`
+[[plugin]]
+name = "disk"
+command = ["~/bin/disk.sh", "--json"]
+
+[[plugin]]
+name = "npm-audit"
+command = ["python3", "audit.py"]
+interval = "30m"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, _ := os.UserHomeDir()
+	if p := cfg.Plugins[0]; p.Command[0] != filepath.Join(home, "bin/disk.sh") || p.Interval.Duration != time.Minute {
+		t.Errorf("plugin 0 = %+v", p)
+	}
+	if cfg.Plugins[1].Interval.Duration != 30*time.Minute {
+		t.Errorf("plugin 1 interval = %v", cfg.Plugins[1].Interval)
+	}
+	_, err = Parse([]byte(`
+[[plugin]]
+name = "con espacio"
+command = []
+
+[[plugin]]
+name = "x"
+command = ["a"]
+interval = "1ms"
+
+[[plugin]]
+name = "x"
+command = ["b"]
+`))
+	for _, want := range []string{"name must be letters", "command is required", "interval must be at least 1s", "duplicate name"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q: %v", want, err)
+		}
+	}
+}
+
 func TestUnknownKeys(t *testing.T) {
 	_, err := Parse([]byte("[[project]]\nname = \"x\"\npath = \"/x\"\nhelth = [\"https://x\"]\n"))
 	if err == nil || !strings.Contains(err.Error(), "project.helth") {

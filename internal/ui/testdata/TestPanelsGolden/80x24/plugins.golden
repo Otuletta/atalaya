@@ -1,0 +1,24 @@
+◆ 0  1 ●1 ●1 2 ✗1 ◉2 3 ✗1 4  5 ●3 ◉1 6  7 Plugins ✗1                            
+────────────────────────────────────────────────────────────────────────────────
+  NPM AUDIT · 2 proyectos · 1 con vulnerabilidades altas o críticas             
+     PROYECTO  TOTAL  SEVERIDAD                                                 
+› ✗  odomto    16     1 crítica, 11 alta                                        
+  ✓  kdx       0      ninguna                                                   
+                                                                                
+  ROTO · token caducado                                                         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+plugin:npm-audit ahora · plugin:roto: token caducado                            
+tab panel · / filtrar · enter detalle · o/p/x acciones · ? ayuda · q salir      

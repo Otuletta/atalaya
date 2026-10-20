@@ -591,6 +591,10 @@ func (m Model) open(item any) tea.Cmd {
 		if it.URL != "" {
 			return openURL(it.URL)
 		}
+	case pluginItem:
+		if it.Row.URL != "" {
+			return openURL(it.Row.URL)
+		}
 	}
 	return m.statusCmd("o no aplica a este elemento")
 }
@@ -854,7 +858,7 @@ func (m Model) statusLine() string {
 	if m.panel == PanelOverview {
 		return strings.Join(append(parts, m.overviewStatus()), sDim.Render(" · "))
 	}
-	for _, src := range panelSources[m.panel] {
+	for _, src := range m.sources() {
 		e, ok := m.state.Get(src)
 		switch {
 		case !ok:
@@ -875,6 +879,18 @@ func (m Model) statusLine() string {
 		}
 	}
 	return strings.Join(parts, sDim.Render(" · "))
+}
+
+// sources are the collectors behind the current panel.
+func (m Model) sources() []string {
+	if m.panel == PanelPlugins {
+		var srcs []string
+		for _, p := range m.deps.Config.Plugins {
+			srcs = append(srcs, collector.PluginSource(p.Name))
+		}
+		return srcs
+	}
+	return panelSources[m.panel]
 }
 
 // overviewStatus names only the failing sources: on the overview, silence

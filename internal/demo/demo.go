@@ -29,8 +29,9 @@ func Config() *config.Config {
 			{Name: "cue", Path: "/demo/cue", GitHub: "otuletta/cue", Health: []string{"https://cue.dev"}},
 			{Name: "landing", Path: "/demo/landing", Health: []string{"https://landing.otuletta.dev"}},
 		},
-		Agents: config.Agents{Patterns: []string{"claude", "cline"}},
-		GitHub: config.GitHubSettings{BotAuthors: config.DefaultBotAuthors},
+		Agents:  config.Agents{Patterns: []string{"claude", "cline"}},
+		GitHub:  config.GitHubSettings{BotAuthors: config.DefaultBotAuthors},
+		Plugins: []config.Plugin{{Name: "npm-audit", Command: []string{"demo"}, Interval: config.Duration{Duration: time.Hour}}},
 	}
 }
 
@@ -47,6 +48,7 @@ func Collectors(start time.Time) []collector.Collector {
 		&fake{name: "docker", every: 10 * time.Second, fn: func(time.Duration) collector.Snapshot { return docker() }},
 		&fake{name: "ollama", every: 10 * time.Second, fn: func(time.Duration) collector.Snapshot { return ollama(start) }},
 		&fake{name: "agents", every: 2 * time.Second, fn: func(el time.Duration) collector.Snapshot { return agents(start, el) }},
+		&fake{name: collector.PluginSource("npm-audit"), every: time.Hour, fn: func(time.Duration) collector.Snapshot { return npmAudit() }},
 	}
 }
 
@@ -256,6 +258,18 @@ func agents(start time.Time, el time.Duration) collector.Snapshot {
 				Activity: "Bash: npm install @simplewebauthn/server", LastAt: start.Add(-2 * time.Minute)}},
 		{PID: 52011, Name: "cline", Project: "landing", Cwd: "/demo/landing", Started: start.Add(-8 * time.Minute), Cmdline: "cline"},
 	}}
+}
+
+// npmAudit is what examples/plugins/npm-audit.py prints for the demo.
+func npmAudit() collector.Snapshot {
+	return collector.PluginSnapshot{Name: "npm-audit", Title: "npm audit", Summary: "3 proyectos · 1 con vulnerabilidades altas o críticas",
+		Columns: []string{"PROYECTO", "TOTAL", "SEVERIDAD"},
+		Rows: []collector.PluginRow{
+			{Cells: []string{"odomto", "6", "1 crítica, 3 alta, 2 moderada"}, Status: collector.PluginError, Project: "odomto",
+				URL: "https://github.com/otuletta/odomto/security/dependabot", Detail: "npm audit fix arregla lo que no rompe dependencias"},
+			{Cells: []string{"landing", "2", "2 moderada"}, Status: collector.PluginWarn, Project: "landing"},
+			{Cells: []string{"kdx", "0", "ninguna"}, Status: collector.PluginOK, Project: "kdx"},
+		}}
 }
 
 // SeedEvents gives the demo's Activity panel a believable past.

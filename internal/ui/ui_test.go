@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -43,8 +44,9 @@ func testConfig() *config.Config {
 			{Name: "kdx", Path: "/w/kdx"},
 			{Name: "cue", Path: "/w/cue", GitHub: "otuletta/cue", Health: []string{"https://cue.dev"}},
 		},
-		Agents: config.Agents{Patterns: []string{"claude", "cline"}},
-		GitHub: config.GitHubSettings{BotAuthors: config.DefaultBotAuthors},
+		Agents:  config.Agents{Patterns: []string{"claude", "cline"}},
+		GitHub:  config.GitHubSettings{BotAuthors: config.DefaultBotAuthors},
+		Plugins: []config.Plugin{{Name: "npm-audit", Command: []string{"x"}}, {Name: "roto", Command: []string{"y"}}},
 	}
 }
 
@@ -123,6 +125,14 @@ func testStore() *store.Store {
 	put("ollama", collector.OllamaSnapshot{Available: true, Models: []collector.OllamaModel{
 		{Name: "qwen3:8b", Params: "8.2B", Quant: "Q4_K_M", VRAMBytes: 6_100_000_000, ExpiresAt: now.Add(4 * time.Minute)},
 	}})
+	put(collector.PluginSource("npm-audit"), collector.PluginSnapshot{Name: "npm-audit", Title: "npm audit",
+		Summary: "2 proyectos · 1 con vulnerabilidades altas o críticas", Columns: []string{"PROYECTO", "TOTAL", "SEVERIDAD"},
+		Rows: []collector.PluginRow{
+			{Cells: []string{"odomto", "16", "1 crítica, 11 alta"}, Status: collector.PluginError, Project: "odomto",
+				URL: "https://github.com/otuletta/odomto/security/dependabot"},
+			{Cells: []string{"kdx", "0", "ninguna"}, Status: collector.PluginOK, Project: "kdx"},
+		}})
+	st.Put(collector.PluginSource("roto"), nil, errors.New("token caducado"), time.Time{})
 	put("events", events.Snapshot{Events: []events.Event{
 		{At: now.Add(-2 * time.Minute), Kind: "ci_broken", Severity: events.Bad, Project: "odomto", Title: "CI roto en odomto",
 			Body: "main · CI", URL: "https://github.com/otuletta/odomto/actions/runs/9"},
@@ -284,7 +294,7 @@ func eachSize(t *testing.T, fn func(t *testing.T, w, h int)) {
 
 func TestPanelsGolden(t *testing.T) {
 	eachSize(t, func(t *testing.T, w, ht int) {
-		for i, name := range []string{"resumen", "repos", "github", "produccion", "local", "agentes", "actividad"} {
+		for i, name := range []string{"resumen", "repos", "github", "produccion", "local", "agentes", "actividad", "plugins"} {
 			t.Run(name, func(t *testing.T) {
 				h := startSized(t, w, ht)
 				h.keys(string(rune('0' + i)))
@@ -591,7 +601,8 @@ func TestOverview(t *testing.T) {
 		"● cue.dev", "timeout", "● api.odomto.com", // health: the down endpoint first
 		":3000 → node · odomto",              // local
 		"◉ te espera kdx Login con passkeys", // agents: the one waiting first
-		"fuentes al día",
+		"plugin:roto: token caducado",        // the overview names only failing sources
+		"✗ roto · token caducado",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("overview lacks %q:\n%s", want, s)

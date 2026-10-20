@@ -23,7 +23,47 @@ type card struct {
 }
 
 func (m Model) cards() []card {
-	return []card{m.reposCard(), m.githubCard(), m.healthCard(), m.localCard(), m.agentsCard(), m.activityCard()}
+	cards := []card{m.reposCard(), m.githubCard(), m.healthCard(), m.localCard(), m.agentsCard(), m.activityCard()}
+	if len(m.deps.Config.Plugins) > 0 {
+		cards = append(cards, m.pluginsCard())
+	}
+	return cards
+}
+
+// pluginsCard has one line per plugin: its worst status, title and summary.
+func (m Model) pluginsCard() card {
+	c := card{panel: PanelPlugins}
+	for _, p := range m.deps.Config.Plugins {
+		s, ok := store.Data[collector.PluginSnapshot](m.state, collector.PluginSource(p.Name))
+		if !ok {
+			if e, _ := m.state.Get(collector.PluginSource(p.Name)); e.Err != "" {
+				c.lines = append(c.lines, sRed.Render("✗ "+p.Name)+sDim.Render(" · "+e.Err))
+			} else {
+				c.lines = append(c.lines, sDim.Render(p.Name+" …"))
+			}
+			continue
+		}
+		worst := collector.PluginOK
+		for _, r := range s.Rows {
+			if pluginRank(r.Status) > pluginRank(worst) {
+				worst = r.Status
+			}
+		}
+		c.lines = append(c.lines, pluginIcon(worst)+" "+s.Title+sDim.Render(" · "+s.Summary))
+	}
+	return c
+}
+
+func pluginRank(status string) int {
+	switch status {
+	case collector.PluginError:
+		return 3
+	case collector.PluginWarn:
+		return 2
+	case collector.PluginOK:
+		return 1
+	}
+	return 0
 }
 
 func (m Model) activityCard() card {

@@ -225,6 +225,27 @@ func (m Model) detail(item any) string {
 		d.title("Acciones")
 		d.line(fmt.Sprintf("o  abrir http://localhost:%d    x  matar el proceso (SIGTERM)", it.Port))
 
+	case pluginItem:
+		d.title(it.Title)
+		for i, c := range it.Row.Cells {
+			label := ""
+			if i < len(it.Columns) {
+				label = strings.ToLower(it.Columns[i])
+			}
+			d.kv(cmpOr(label, fmt.Sprint(i+1)), c)
+		}
+		d.kv("estado", pluginIcon(it.Row.Status)+" "+it.Row.Status)
+		d.kv("proyecto", it.Row.Project)
+		if it.Row.Detail != "" {
+			d.title("Detalle")
+			d.line(it.Row.Detail)
+		}
+		if it.Row.URL != "" {
+			d.kv("enlace", it.Row.URL)
+			d.title("Acciones")
+			d.line("o  abrir el enlace")
+		}
+
 	case events.Event:
 		d.title(it.Title)
 		d.kv("cuándo", stamp(m.now, it.At))

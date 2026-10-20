@@ -76,6 +76,15 @@ func (n Notify) WantAgents() bool { return on(n.Enabled) && on(n.Agents) }
 // WantReviews reports whether new review requests are notified.
 func (n Notify) WantReviews() bool { return on(n.Enabled) && on(n.Reviews) }
 
+// Plugin is an external source: a command that prints a small JSON table
+// (see examples/plugins). Each one gets a section in the Plugins panel.
+type Plugin struct {
+	Name    string   `toml:"name"`
+	Command []string `toml:"command"`
+	// Interval between runs. Default 60s.
+	Interval Duration `toml:"interval"`
+}
+
 // AI configures the Claude Code integration (keys a and c).
 type AI struct {
 	// Command is the Claude Code CLI and fixed arguments. Default: claude.
@@ -108,6 +117,7 @@ type Config struct {
 	GitHub     GitHubSettings `toml:"github"`
 	Notify     Notify         `toml:"notify"`
 	AI         AI             `toml:"ai"`
+	Plugins    []Plugin       `toml:"plugin"`
 	Intervals  Intervals      `toml:"intervals"`
 
 	// Path is where the config was loaded from.
@@ -235,6 +245,15 @@ func (c *Config) applyDefaults() {
 	if c.GitHub.BotAuthors == nil {
 		c.GitHub.BotAuthors = DefaultBotAuthors
 	}
+	for i := range c.Plugins {
+		p := &c.Plugins[i]
+		if p.Interval.Duration == 0 {
+			p.Interval.Duration = time.Minute
+		}
+		if len(p.Command) > 0 {
+			p.Command[0] = ExpandHome(p.Command[0])
+		}
+	}
 	if c.OllamaHost == "" {
 		c.OllamaHost = os.Getenv("OLLAMA_HOST")
 	}
@@ -261,7 +280,10 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-var githubRepoRE = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
+var (
+	githubRepoRE = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
+	pluginNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+)
 
 // Validate reports every problem at once, so a broken file can be fixed in
 // one pass.
@@ -304,6 +326,23 @@ func (c *Config) Validate() error {
 	for _, b := range c.GitHub.BotAuthors {
 		if strings.TrimSpace(b) == "" {
 			errs = append(errs, errors.New("github.bot_authors: empty author"))
+		}
+	}
+	plugins := map[string]bool{}
+	for i, p := range c.Plugins {
+		where := fmt.Sprintf("plugin #%d", i+1)
+		switch {
+		case !pluginNameRE.MatchString(p.Name):
+			errs = append(errs, fmt.Errorf("%s: name must be letters, digits, - or _: %q", where, p.Name))
+		case plugins[p.Name]:
+			errs = append(errs, fmt.Errorf("plugin %q: duplicate name", p.Name))
+		}
+		plugins[p.Name] = true
+		if len(p.Command) == 0 || strings.TrimSpace(p.Command[0]) == "" {
+			errs = append(errs, fmt.Errorf("plugin %q: command is required", p.Name))
+		}
+		if p.Interval.Duration < time.Second {
+			errs = append(errs, fmt.Errorf("plugin %q: interval must be at least 1s", p.Name))
 		}
 	}
 	d := c.Intervals

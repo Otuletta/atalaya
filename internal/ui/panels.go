@@ -27,15 +27,17 @@ const (
 	PanelLocal
 	PanelAgents
 	PanelActivity
+	PanelPlugins
 	panelCount
 )
 
-var panelNames = [panelCount]string{"Resumen", "Repos", "GitHub", "Producción", "Local", "Agentes", "Actividad"}
+var panelNames = [panelCount]string{"Resumen", "Repos", "GitHub", "Producción", "Local", "Agentes", "Actividad", "Plugins"}
 
 // panelSources are the collectors each panel reads, for its status line.
 var panelSources = [panelCount][]string{
 	nil, // the overview reports every source with an error
 	{"git", "fetch"}, {"github"}, {"health"}, {"ports", "docker", "ollama"}, {"agents"}, {"events"},
+	nil, // plugins: one source per configured plugin, see Model.sources
 }
 
 // row is one line of a panel. Non-selectable rows are section titles and
@@ -95,6 +97,8 @@ func (m Model) build(p Panel) panelView {
 		return m.agentsPanel()
 	case PanelActivity:
 		return m.activityPanel()
+	case PanelPlugins:
+		return m.pluginsPanel()
 	}
 	return panelView{}
 }
@@ -854,6 +858,94 @@ func (m Model) unseen() int {
 	return n
 }
 
+// ---- 7. Plugins ----
+
+// pluginItem is a row of a plugin's table.
+type pluginItem struct {
+	Plugin  string
+	Title   string
+	Columns []string
+	Row     collector.PluginRow
+}
+
+func (m Model) pluginsPanel() panelView {
+	var pv panelView
+	if len(m.deps.Config.Plugins) == 0 {
+		pv.empty = sDim.Render("Sin plugins. Un plugin es cualquier programa que imprima una tabla en JSON: " +
+			"añade [[plugin]] a la config (ejemplos en examples/plugins).")
+		return pv
+	}
+	w := m.contentWidth()
+	for _, p := range m.deps.Config.Plugins {
+		src := collector.PluginSource(p.Name)
+		if len(pv.rows) > 0 {
+			pv.rows = append(pv.rows, row{line: ""})
+		}
+		s, ok := store.Data[collector.PluginSnapshot](m.state, src)
+		if !ok {
+			note := sDim.Render(" · Cargando…")
+			if e, _ := m.state.Get(src); e.Err != "" {
+				note = sRed.Render(" · " + e.Err)
+			}
+			pv.rows = append(pv.rows, row{line: sSection.Render(strings.ToUpper(p.Name)) + note})
+			continue
+		}
+		title := sSection.Render(strings.ToUpper(s.Title))
+		if s.Summary != "" {
+			title += sDim.Render(" · " + s.Summary)
+		}
+		if e, _ := m.state.Get(src); e.Err != "" {
+			title += sRed.Render(" · " + e.Err)
+		}
+		pv.rows = append(pv.rows, row{line: title})
+		cols := []column{{title: ""}}
+		for i, c := range s.Columns {
+			col := column{title: c, max: 40, min: 6}
+			if i == len(s.Columns)-1 {
+				col = column{title: c, flex: true, min: 10}
+			}
+			cols = append(cols, col)
+		}
+		t := table{cols: cols}
+		var items []pluginItem
+		for _, r := range s.Rows {
+			if !m.match(append([]string{r.Project}, r.Cells...)...) {
+				continue
+			}
+			cells := []string{pluginIcon(r.Status)}
+			for i, c := range r.Cells {
+				if i == 0 {
+					c = link(r.URL, c)
+				}
+				cells = append(cells, c)
+			}
+			t.add(cells...)
+			items = append(items, pluginItem{Plugin: p.Name, Title: s.Title, Columns: s.Columns, Row: r})
+		}
+		if len(items) == 0 {
+			continue
+		}
+		ws := t.layout(w)
+		pv.rows = append(pv.rows, row{line: t.header(ws)})
+		for i, l := range t.lines(ws) {
+			pv.rows = append(pv.rows, row{key: fmt.Sprintf("plugin:%s:%d", p.Name, i), selectable: true, item: items[i], line: l})
+		}
+	}
+	return pv
+}
+
+func pluginIcon(status string) string {
+	switch status {
+	case collector.PluginOK:
+		return sGreen.Render("✓")
+	case collector.PluginWarn:
+		return sYellow.Render("●")
+	case collector.PluginError:
+		return sRed.Render("✗")
+	}
+	return sDim.Render("·")
+}
+
 // ---- tab badges ----
 
 // badge summarizes what needs attention in a panel, for its tab label.
@@ -900,6 +992,21 @@ func (m Model) badge(p Panel) string {
 		}
 	case PanelActivity:
 		return count("●", m.unseen(), sYellow)
+	case PanelPlugins:
+		errs, warns := 0, 0
+		for _, p := range m.deps.Config.Plugins {
+			if s, ok := store.Data[collector.PluginSnapshot](m.state, collector.PluginSource(p.Name)); ok {
+				for _, r := range s.Rows {
+					switch r.Status {
+					case collector.PluginError:
+						errs++
+					case collector.PluginWarn:
+						warns++
+					}
+				}
+			}
+		}
+		return badges(count("✗", errs, sRed), count("●", warns, sYellow))
 	}
 	return ""
 }

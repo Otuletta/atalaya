@@ -1,24 +1,24 @@
-◆ 0 Resumen  1 ●1 ●1 2 ✗1 ◉2 3 ✗1 4  5 ●3 ◉1 6                                  
+◆ 0 Resumen  1 ●1 ●1 2 ✗1 ◉2 3 ✗1 4  5 ●3 ◉1 6  7 ✗1                            
 ────────────────────────────────────────────────────────────────────────────────
 ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ 
 │ 1 Repos ●1 ●1                       │ │ 2 GitHub ✗1 ◉2                      │ 
 │ 1 desincronizado · 1 con cambios    │ │ CI ✓0 ✗1 ⟳1 · 5 PRs                 │ 
-│ odomto feat/sparkline ↑2 ↓1 +1 ~2 … │ │ odomto ✗ CI 3m15s                   │ 
-│ kdx feat/login ✓ ~4                 │ │ … y 2 más                           │ 
+│ … y 2 más                           │ │ … y 3 más                           │ 
 ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ 
 ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ 
 │ 3 Producción ✗1                     │ │ 4 Local                             │ 
 │ 2 endpoints  ✓1 ✗1 · 24h 91.3%      │ │ 3 puertos · 1 contenedor            │ 
-│ ● cue.dev           timeout  ▇█××   │ │ :3000 → node · odomto               │ 
-│ ● api.odomto.com    142 ms   █▃▃×▃▃ │ │ … y 3 más                           │ 
+│ … y 2 más                           │ │ … y 4 más                           │ 
 ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ 
 ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ 
 │ 5 Agentes ●3 ◉1                     │ │ 6 Actividad                         │ 
 │ 3 sesiones · 1 te espera            │ │ ✗ CI roto en odomto · hace 2m       │ 
-│ ◉ te espera kdx Login con passkeys  │ │ ◉ Te piden review en otuletta/odom… │ 
-│ … y 2 más                           │ │ · Nuevo PR #7 en kdx · 18/10 10:00  │ 
+│ … y 3 más                           │ │ … y 2 más                           │ 
 ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ 
-
-
-9 fuentes al día · enter abre una tarjeta                                       
+╭─────────────────────────────────────╮                                         
+│ 7 Plugins ✗1                        │                                         
+│ ✗ npm audit · 2 proyectos · 1 con … │                                         
+│ ✗ roto · token caducado             │                                         
+╰─────────────────────────────────────╯                                         
+plugin:roto: token caducado                                                     
 tab panel · / filtrar · enter detalle · o/p/x acciones · ? ayuda · q salir      
