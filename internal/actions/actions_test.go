@@ -81,6 +81,47 @@ func TestPullFastForwardOnly(t *testing.T) {
 	}
 }
 
+// fakeGH puts a gh that records its arguments (and fails on squash when
+// asked) first in PATH.
+func fakeGH(t *testing.T, failSquash bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho \"$@\" >> \"$(dirname \"$0\")/calls\"\n"
+	if failSquash {
+		script += "case \"$*\" in *--squash*) echo 'GraphQL: Squash merges are not allowed on this repository' >&2; exit 1;; esac\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return filepath.Join(dir, "calls")
+}
+
+func TestRerunFailed(t *testing.T) {
+	calls := fakeGH(t, false)
+	if err := RerunFailed(context.Background(), "https://github.com/o/r/actions/runs/123"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(calls); strings.TrimSpace(string(got)) != "run rerun 123 --repo o/r --failed" {
+		t.Errorf("gh = %q", got)
+	}
+	if err := RerunFailed(context.Background(), "https://vercel.com/x"); err == nil {
+		t.Error("a non-Actions URL was accepted")
+	}
+}
+
+func TestMergePRFallsBackToMergeCommit(t *testing.T) {
+	calls := fakeGH(t, true)
+	if err := MergePR(context.Background(), "o/r", 7); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(calls)
+	want := "pr merge 7 --repo o/r --squash --delete-branch\npr merge 7 --repo o/r --merge --delete-branch\n"
+	if string(got) != want {
+		t.Errorf("gh calls:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestKillChecksIdentity(t *testing.T) {
 	cmd := exec.Command("sleep", "30")
 	if err := cmd.Start(); err != nil {

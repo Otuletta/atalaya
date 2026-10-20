@@ -220,6 +220,16 @@ func (f *fakeActions) Fix(_ context.Context, fl ai.Failure) (*exec.Cmd, error) {
 	return exec.Command("true"), nil
 }
 
+func (f *fakeActions) RerunFailed(_ context.Context, runURL string) error {
+	f.record("rerun " + runURL)
+	return nil
+}
+
+func (f *fakeActions) MergePR(_ context.Context, repo string, number int) error {
+	f.record(fmt.Sprintf("merge %s#%d", repo, number))
+	return nil
+}
+
 func (f *fakeActions) Kill(_ context.Context, pid int32, _ time.Time) error {
 	f.record(fmt.Sprint("kill ", pid))
 	return nil
@@ -239,10 +249,15 @@ func start(t *testing.T) *harness {
 
 func startSized(t *testing.T, w, ht int) *harness {
 	t.Helper()
+	return startWith(t, testStore(), w, ht)
+}
+
+func startWith(t *testing.T, st *store.Store, w, ht int) *harness {
+	t.Helper()
 	h := &harness{actions: &fakeActions{}}
 	m := New(Deps{
 		Config:  testConfig(),
-		Store:   testStore(),
+		Store:   st,
 		Actions: h.actions,
 		Now:     func() time.Time { return now },
 		Version: "v-test",
@@ -550,6 +565,57 @@ func TestAnalyzeAndFixCI(t *testing.T) {
 	}
 	if !strings.Contains(m.viewport.View(), "import sin usar") {
 		t.Errorf("note = %q", m.viewport.View())
+	}
+}
+
+func TestPullAllOnlyFastForwardsCleanRepos(t *testing.T) {
+	st := testStore()
+	st.Put("git", collector.GitSnapshot{Repos: []collector.Repo{
+		{Project: "odomto", Path: "/w/odomto", Branch: "main", Upstream: "origin/main", Behind: 2,
+			Changes: gitparse.Counts{Unstaged: 1}}, // dirty: left alone
+		{Project: "kdx", Path: "/w/kdx", Branch: "main", Upstream: "origin/main", Behind: 1, Ahead: 1}, // diverged
+		{Project: "cue", Path: "/w/cue", Branch: "main", Upstream: "origin/main", Behind: 3},
+	}}, nil, now)
+	h := startWith(t, st, 120, 30)
+	h.keys("P")
+	h.waitFor(t, "¿git pull --ff-only en 1 repo (cue ↓3)?")
+	h.keys("y")
+	h.waitFor(t, "pull: 1 ok")
+	h.final(t)
+	if calls := h.actions.Calls(); len(calls) != 1 || calls[0] != "pull /w/cue" {
+		t.Errorf("calls = %v", calls)
+	}
+
+	h = start(t) // the fixture has nothing to pull
+	h.keys("P")
+	h.waitFor(t, "ningún repo está atrasado y limpio")
+	h.final(t)
+}
+
+func TestRerunFailedCI(t *testing.T) {
+	h := start(t)
+	h.keys("2", "R")
+	h.waitFor(t, "¿Relanzar los jobs fallidos del CI de odomto en main?")
+	h.keys("y")
+	h.waitFor(t, "CI de odomto relanzado")
+	h.final(t)
+	if calls := h.actions.Calls(); len(calls) != 1 || calls[0] != "rerun https://github.com/otuletta/odomto/actions/runs/9" {
+		t.Errorf("calls = %v", calls)
+	}
+}
+
+func TestMergeGreenBotPRs(t *testing.T) {
+	h := start(t)
+	// repo → branch → #41 (review) → #42 → dependabot: only #50 is green.
+	h.keys("2", "j", "j", "j", "j", "M")
+	h.waitFor(t, "¿Merge (squash) de 1 PR de dependabot en otuletta/odomto: #50?")
+	h.keys("y")
+	h.waitFor(t, "merge: 1 ok")
+	h.keys("k", "M") // #42 is still running its checks
+	h.waitFor(t, "#42 no tiene los checks en verde")
+	h.final(t)
+	if calls := h.actions.Calls(); len(calls) != 1 || calls[0] != "merge otuletta/odomto#50" {
+		t.Errorf("calls = %v", calls)
 	}
 }
 

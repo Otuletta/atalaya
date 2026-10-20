@@ -38,6 +38,10 @@ type Actions interface {
 	// session to repair it.
 	Diagnose(ctx context.Context, f ai.Failure) (string, error)
 	Fix(ctx context.Context, f ai.Failure) (*exec.Cmd, error)
+	// RerunFailed re-runs the failed jobs of a GitHub Actions run; MergePR
+	// merges a pull request.
+	RerunFailed(ctx context.Context, runURL string) error
+	MergePR(ctx context.Context, repo string, number int) error
 }
 
 // Deps is everything the UI needs from the outside.
@@ -281,7 +285,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.deps.ReadOnly && key.Matches(msg, k.Open, k.Pull, k.Kill, k.Analyze, k.Fix) {
+	if m.deps.ReadOnly && key.Matches(msg, k.Open, k.Pull, k.Kill, k.Analyze, k.Fix, k.PullAll, k.Rerun, k.Merge) {
 		return m, m.statusCmd("solo lectura por SSH: las acciones se hacen en la máquina que ejecuta atalaya")
 	}
 	if key.Matches(msg, k.Quit) {
@@ -305,6 +309,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.analyze(m.selectedItem())
 		case key.Matches(msg, k.Fix):
 			return m.askFix(m.selectedItem())
+		case key.Matches(msg, k.Rerun):
+			return m.askRerun(m.selectedItem())
+		case key.Matches(msg, k.Merge):
+			return m.askMerge(m.selectedItem())
+		case key.Matches(msg, k.PullAll):
+			return m.askPullAll()
 		default:
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
@@ -361,6 +371,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.analyze(m.selectedItem())
 	case key.Matches(msg, k.Fix):
 		return m.askFix(m.selectedItem())
+	case key.Matches(msg, k.Rerun):
+		return m.askRerun(m.selectedItem())
+	case key.Matches(msg, k.Merge):
+		return m.askMerge(m.selectedItem())
+	case key.Matches(msg, k.PullAll):
+		return m.askPullAll()
 	case key.Matches(msg, k.Refresh):
 		m.refreshing = true
 		m.deps.Refresh()
@@ -390,7 +406,7 @@ func (m *Model) overviewKey(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		m.overviewSel = len(m.cards()) - 1
 	case key.Matches(msg, k.Enter):
 		m.panel = m.cards()[m.overviewSel].panel
-	case key.Matches(msg, k.Open, k.Pull, k.Kill, k.Analyze, k.Fix):
+	case key.Matches(msg, k.Open, k.Pull, k.Kill, k.Analyze, k.Fix, k.Rerun, k.Merge):
 		return true, m.statusCmd("abre un panel con enter para actuar sobre un elemento")
 	default:
 		return false, nil
@@ -659,6 +675,143 @@ func (m Model) askKill(item any) (Model, tea.Cmd) {
 			}
 			return actionMsg{text: fmt.Sprintf("SIGTERM enviado a %s (pid %d)", p.Process, p.PID), refresh: []string{"ports", "agents"}}
 		},
+	}
+	return m, nil
+}
+
+// pullable is every repo a pull can only fast-forward: behind its
+// upstream, nothing of its own to push, no uncommitted work.
+func (m Model) pullable() []collector.Repo {
+	gs, _ := store.Data[collector.GitSnapshot](m.state, "git")
+	var out []collector.Repo
+	for _, r := range gs.Repos {
+		if r.Behind > 0 && r.Ahead == 0 && !r.Dirty() && r.Upstream != "" && !r.UpstreamGone && !r.Detached && r.Err == "" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// names lists a few names and how many more there are.
+func names(all []string, n int) string {
+	if len(all) <= n {
+		return strings.Join(all, ", ")
+	}
+	return fmt.Sprintf("%s y %d más", strings.Join(all[:n], ", "), len(all)-n)
+}
+
+// batchResult summarizes a batch: "3 ok" or "2 ok · falló kdx: …".
+func batchResult(verb string, ok int, failed []string) actionMsg {
+	text := fmt.Sprintf("%s: %d ok", verb, ok)
+	if len(failed) == 0 {
+		return actionMsg{text: text}
+	}
+	return actionMsg{err: fmt.Errorf("%s · falló %s", text, strings.Join(failed, " · "))}
+}
+
+// askPullAll fast-forwards every repo that is simply behind.
+func (m Model) askPullAll() (Model, tea.Cmd) {
+	repos := m.pullable()
+	if len(repos) == 0 {
+		return m, m.statusCmd("ningún repo está atrasado y limpio: nada que traer")
+	}
+	var list []string
+	for _, r := range repos {
+		list = append(list, fmt.Sprintf("%s ↓%d", r.Project, r.Behind))
+	}
+	a := m.deps.Actions
+	m.confirm = &confirmation{
+		prompt: fmt.Sprintf("¿git pull --ff-only en %s (%s)?", plural(len(repos), "repo", "repos"), names(list, 4)),
+		run: tea.Sequence(m.statusCmd("git pull en "+plural(len(repos), "repo", "repos")+"…"), func() tea.Msg {
+			var ok int
+			var failed []string
+			for _, r := range repos {
+				if _, err := a.Pull(context.Background(), r.Path); err != nil {
+					failed = append(failed, r.Project+": "+err.Error())
+					continue
+				}
+				ok++
+			}
+			msg := batchResult("pull", ok, failed)
+			msg.refresh = []string{"git", "github"}
+			return msg
+		}),
+	}
+	return m, nil
+}
+
+// askRerun re-runs the failed jobs of a broken CI.
+func (m Model) askRerun(item any) (Model, tea.Cmd) {
+	f, ok := m.failure(item)
+	if !ok || m.deps.Actions == nil {
+		return m, m.statusCmd("R relanza un CI roto de GitHub Actions (panel 2)")
+	}
+	a := m.deps.Actions
+	m.confirm = &confirmation{
+		prompt: fmt.Sprintf("¿Relanzar los jobs fallidos del CI de %s en %s?", f.Project, f.Branch),
+		run: func() tea.Msg {
+			if err := a.RerunFailed(context.Background(), f.RunURL); err != nil {
+				return actionMsg{err: fmt.Errorf("rerun %s: %w", f.Project, err)}
+			}
+			return actionMsg{text: "CI de " + f.Project + " relanzado: los jobs fallidos vuelven a correr",
+				refresh: []string{"github"}}
+		},
+	}
+	return m, nil
+}
+
+// mergeable is a PR whose checks pass and nobody asked to change.
+func mergeable(pr collector.PullRequest) bool {
+	return pr.Checks == collector.CISuccess && !pr.Draft && pr.ReviewDecision != "CHANGES_REQUESTED"
+}
+
+// askMerge merges the green PRs of a bot group, or one green PR.
+func (m Model) askMerge(item any) (Model, tea.Cmd) {
+	var prs []collector.PullRequest
+	var what string
+	switch it := item.(type) {
+	case botGroup:
+		for _, pr := range it.PRs {
+			if mergeable(pr) {
+				prs = append(prs, pr)
+			}
+		}
+		if len(prs) == 0 {
+			return m, m.statusCmd(fmt.Sprintf("ninguno de los %d PRs de %s tiene los checks en verde", len(it.PRs), it.Author))
+		}
+		what = fmt.Sprintf("%s de %s en %s", plural(len(prs), "PR", "PRs"), it.Author, it.Repo)
+	case collector.PullRequest:
+		if !mergeable(it) {
+			return m, m.statusCmd(fmt.Sprintf("#%d no tiene los checks en verde: no se fusiona", it.Number))
+		}
+		prs, what = []collector.PullRequest{it}, fmt.Sprintf("#%d de %s", it.Number, it.Repo)
+	default:
+		return m, m.statusCmd("M fusiona PRs en verde: un grupo de bots o un PR (panel 2)")
+	}
+	if m.deps.Actions == nil {
+		return m, nil
+	}
+	var nums []string
+	for _, pr := range prs {
+		nums = append(nums, fmt.Sprintf("#%d", pr.Number))
+	}
+	a := m.deps.Actions
+	m.confirm = &confirmation{
+		prompt: fmt.Sprintf("¿Merge (squash) de %s: %s?", what, names(nums, 6)),
+		run: tea.Sequence(m.statusCmd("fusionando "+what+"…"), func() tea.Msg {
+			var ok int
+			var failed []string
+			for _, pr := range prs {
+				if err := a.MergePR(context.Background(), pr.Repo, pr.Number); err != nil {
+					failed = append(failed, fmt.Sprintf("#%d: %v", pr.Number, err))
+					continue
+				}
+				ok++
+			}
+			msg := batchResult("merge", ok, failed)
+			msg.refresh = []string{"github"}
+			return msg
+		}),
 	}
 	return m, nil
 }
@@ -964,20 +1117,24 @@ var actionsBinding = key.NewBinding(key.WithKeys("o", "p", "x"), key.WithHelp("o
 func (m Model) helpView() string {
 	cols := make([]string, 0, 2)
 	for _, group := range m.keys.FullHelp() {
+		keyWidth := 0
+		for _, k := range group {
+			keyWidth = max(keyWidth, lipgloss.Width(k.Help().Key))
+		}
 		var b strings.Builder
 		for i, k := range group {
 			if i > 0 {
 				b.WriteString("\n")
 			}
 			h := k.Help()
-			b.WriteString(sKey.Render(fmt.Sprintf("%-10s", h.Key)) + " " + h.Desc)
+			b.WriteString(sKey.Render(h.Key+strings.Repeat(" ", keyWidth-lipgloss.Width(h.Key))) + "  " + h.Desc)
 		}
 		cols = append(cols, b.String())
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		sBrand.Render("Atalaya")+sDim.Render(" "+m.deps.Version+" — torre de control de tus proyectos"),
 		"",
-		lipgloss.JoinHorizontal(lipgloss.Top, cols[0], "     ", cols[1]),
+		lipgloss.JoinHorizontal(lipgloss.Top, cols[0], "    ", cols[1]),
 		"",
 		sYellow.Render("amarillo")+sDim.Render(" trabajo sin commitear · ")+sRed.Render("rojo")+sDim.Render(" desincronizado, roto o caído"),
 		sDim.Render("config: "+config.ContractHome(m.deps.Config.Path)),

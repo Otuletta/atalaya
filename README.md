@@ -58,8 +58,11 @@ atalaya --demo               # o pruébalo con datos simulados, sin config
 | `o` | Abrir: el repo en tu editor, el PR o el run fallido en el navegador, `localhost:<puerto>` |
 | `p` | `git pull --ff-only` del repo seleccionado (pide confirmación) |
 | `x` | Matar el proceso de un puerto con `SIGTERM` (pide confirmación) |
+| `P` | `git pull --ff-only` de **todos** los repos atrasados y limpios: sin cambios sin commitear ni commits propios por subir (pide confirmación) |
 | `a` | Sobre un CI roto: **diagnóstico de Claude**. Descarga el log del job fallido, lo recorta a lo que rodea el error y le pide a Claude la causa y el arreglo |
 | `c` | Sobre un CI roto: abre **Claude Code** en el repo con ese log como contexto (pide confirmación). Al salir, vuelves a Atalaya |
+| `R` | Sobre un CI roto: relanza solo los jobs fallidos (`gh run rerun --failed`, pide confirmación) |
+| `M` | Sobre el grupo de un bot: merge (squash) de **todos** sus PRs con checks en verde; sobre un PR, solo de ese. Si el repo no permite squash, usa un merge commit (pide confirmación) |
 | `r` | Refrescar todas las fuentes ya |
 | `?` | Ayuda |
 | `q` | Salir |
@@ -107,7 +110,7 @@ atalaya serve                     # escucha en localhost:2222
 atalaya serve --addr :2222        # en tu red local: ssh -p 2222 tu-mac.local
 ```
 
-Cada conexión recibe el panel completo en su terminal, también desde el móvil con cualquier cliente SSH. Todas comparten los mismos collectors (una sola consulta a GitHub para todos) y cada sesión es **de solo lectura**: `o`, `p`, `x`, `a` y `c` se desactivan, porque actuarían en la máquina que sirve. Solo entran las claves de `~/.ssh/authorized_keys` (o el archivo que indiques con `--authorized-keys`); sin ese archivo, `serve` no arranca. La clave del host se genera una vez en la carpeta de estado. Está hecho con [Wish](https://github.com/charmbracelet/wish).
+Cada conexión recibe el panel completo en su terminal, también desde el móvil con cualquier cliente SSH. Todas comparten los mismos collectors (una sola consulta a GitHub para todos) y cada sesión es **de solo lectura**: `o`, `p`, `x`, `a`, `c`, `P`, `R` y `M` se desactivan, porque actuarían en la máquina que sirve. Solo entran las claves de `~/.ssh/authorized_keys` (o el archivo que indiques con `--authorized-keys`); sin ese archivo, `serve` no arranca. La clave del host se genera una vez en la carpeta de estado. Está hecho con [Wish](https://github.com/charmbracelet/wish).
 
 ## Configuración
 
@@ -224,7 +227,7 @@ Los tests de la UI usan [teatest](https://github.com/charmbracelet/x/tree/main/e
 | `internal/store` | Estado compartido y caché del último dato bueno |
 | `internal/config` | Carga, validación y `init` |
 | `internal/ui` | Modelo Bubble Tea, paneles, detalle y estilos |
-| `internal/actions` | Lo que hacen `o`, `p` y `x` |
+| `internal/actions` | Lo que hacen `o`, `p`, `x`, `R` y `M` |
 | `internal/notify` | Detector de cambios: eventos y notificaciones |
 | `internal/events` | El log de actividad (JSON lines, compactado) |
 | `internal/ai` | Diagnóstico y arreglo de CI con Claude Code |

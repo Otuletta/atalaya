@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -105,6 +106,40 @@ func lastLine(s string) string {
 	return strings.TrimSpace(lines[len(lines)-1])
 }
 
+// gh runs the GitHub CLI and returns its error output as the error.
+func gh(ctx context.Context, args ...string) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gh", args...).CombinedOutput()
+	if err != nil {
+		if msg := lastLine(string(out)); msg != "" {
+			return errors.New(msg)
+		}
+		return err
+	}
+	return nil
+}
+
+// RerunFailed re-runs only the failed jobs of a GitHub Actions run.
+func RerunFailed(ctx context.Context, runURL string) error {
+	run, ok := ai.ParseRunURL(runURL)
+	if !ok {
+		return fmt.Errorf("no es un run de GitHub Actions: %s", runURL)
+	}
+	return gh(ctx, "run", "rerun", run.ID, "--repo", run.Repo, "--failed")
+}
+
+// MergePR squash-merges a pull request and deletes its branch, falling back
+// to a merge commit when the repo does not allow squashing.
+func MergePR(ctx context.Context, repo string, number int) error {
+	n := strconv.Itoa(number)
+	err := gh(ctx, "pr", "merge", n, "--repo", repo, "--squash", "--delete-branch")
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "squash") {
+		err = gh(ctx, "pr", "merge", n, "--repo", repo, "--merge", "--delete-branch")
+	}
+	return err
+}
+
 // ErrProcessChanged means the PID now belongs to a different process.
 var ErrProcessChanged = errors.New("el proceso ya no existe (el PID se reutilizó)")
 
@@ -175,4 +210,12 @@ func (System) Pull(ctx context.Context, dir string) (string, error) {
 }
 func (System) Kill(ctx context.Context, pid int32, started time.Time) error {
 	return Kill(ctx, pid, started)
+}
+
+// RerunFailed re-runs the failed jobs of a CI run.
+func (System) RerunFailed(ctx context.Context, runURL string) error { return RerunFailed(ctx, runURL) }
+
+// MergePR merges a pull request.
+func (System) MergePR(ctx context.Context, repo string, number int) error {
+	return MergePR(ctx, repo, number)
 }

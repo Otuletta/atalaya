@@ -323,6 +323,8 @@ func (Actions) Start(*exec.Cmd) error                        { return nil }
 func (Actions) OpenURL(string) error                         { return nil }
 func (Actions) Pull(context.Context, string) (string, error) { return "Already up to date.", nil }
 func (Actions) Kill(context.Context, int32, time.Time) error { return nil }
+func (Actions) RerunFailed(context.Context, string) error    { return nil }
+func (Actions) MergePR(context.Context, string, int) error   { return nil }
 
 // Diagnose answers like Claude would about the demo's broken CI.
 func (Actions) Diagnose(context.Context, ai.Failure) (string, error) {

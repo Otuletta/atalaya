@@ -132,7 +132,7 @@ func (m Model) detail(item any) string {
 		d.title("Acciones")
 		d.line("o  abrir en el navegador    p  git pull --ff-only del repo local")
 		if _, ok := m.failure(it); ok {
-			d.line("a  diagnóstico de Claude    c  arreglarlo con Claude Code")
+			d.line("a  diagnóstico de Claude    c  arreglarlo con Claude Code    R  relanzar los jobs fallidos")
 		}
 
 	case branchItem:
@@ -141,7 +141,7 @@ func (m Model) detail(item any) string {
 		d.title("Acciones")
 		d.line("o  abrir el PR (o el run, si falla)    p  git pull --ff-only del repo local")
 		if _, ok := m.failure(it); ok {
-			d.line("a  diagnóstico de Claude    c  arreglarlo con Claude Code")
+			d.line("a  diagnóstico de Claude    c  arreglarlo con Claude Code    R  relanzar los jobs fallidos")
 		}
 
 	case botGroup:
@@ -150,7 +150,7 @@ func (m Model) detail(item any) string {
 			d.line(fmt.Sprintf("%s #%d %s %s", ciIcon(pr.Checks), pr.Number, pr.Title, sDim.Render("· "+ago(m.now, pr.UpdatedAt))))
 		}
 		d.title("Acciones")
-		d.line("o  abrir estos PRs en el navegador")
+		d.line("o  abrir estos PRs en el navegador    M  merge de los que están en verde")
 
 	case collector.PullRequest:
 		d.title(fmt.Sprintf("#%d %s", it.Number, it.Title))
@@ -165,7 +165,11 @@ func (m Model) detail(item any) string {
 		d.kv("actualizado", stamp(m.now, it.UpdatedAt))
 		d.kv("url", it.URL)
 		d.title("Acciones")
-		d.line("o  abrir el PR en el navegador")
+		if mergeable(it) {
+			d.line("o  abrir el PR en el navegador    M  merge (squash)")
+		} else {
+			d.line("o  abrir el PR en el navegador")
+		}
 
 	case collector.Check:
 		d.title(it.URL)

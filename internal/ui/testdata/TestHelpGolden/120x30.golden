@@ -3,25 +3,25 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                                                                                                                        
-                 ╭───────────────────────────────────────────────────────────────────────────────────╮                  
-                 │  Atalaya v-test — torre de control de tus proyectos                               │                  
-                 │                                                                                   │                  
-                 │  tab        siguiente panel         /          filtrar                            │                  
-                 │  shift+tab  panel anterior          enter      detalle                            │                  
-                 │  0-7        ir al panel             esc        volver / limpiar filtro            │                  
-                 │  k/↑        subir                   o          abrir en editor / navegador        │                  
-                 │  j/↓        bajar                   p          git pull                           │                  
-                 │  g          inicio                  x          matar proceso del puerto           │                  
-                 │  G          final                   a          CI roto: diagnóstico de Claude     │                  
-                 │  ctrl+u     media página arriba     c          CI roto: arreglar con Claude Code  │                  
-                 │  ctrl+d     media página abajo      r          refrescar todo                     │                  
-                 │                                     ?          ayuda                              │                  
-                 │                                     q          salir                              │                  
-                 │                                                                                   │                  
-                 │  amarillo trabajo sin commitear · rojo desincronizado, roto o caído               │                  
-                 │  config: /cfg/atalaya/config.toml                                                 │                  
-                 ╰───────────────────────────────────────────────────────────────────────────────────╯                  
+                    ╭──────────────────────────────────────────────────────────────────────────────╮                    
+                    │  Atalaya v-test — torre de control de tus proyectos                          │                    
+                    │                                                                              │                    
+                    │  tab        siguiente panel            o  abrir en editor / navegador        │                    
+                    │  shift+tab  panel anterior             p  git pull                           │                    
+                    │  0-7        ir al panel                P  pull de todos los repos atrasados  │                    
+                    │  k/↑        subir                      x  matar proceso del puerto           │                    
+                    │  j/↓        bajar                      a  CI roto: diagnóstico de Claude     │                    
+                    │  g          inicio                     c  CI roto: arreglar con Claude Code  │                    
+                    │  G          final                      R  CI roto: relanzar lo fallido       │                    
+                    │  ctrl+u     media página arriba        M  merge de los PRs en verde          │                    
+                    │  ctrl+d     media página abajo         r  refrescar todo                     │                    
+                    │  /          filtrar                    ?  ayuda                              │                    
+                    │  enter      detalle                    q  salir                              │                    
+                    │  esc        volver / limpiar filtro                                          │                    
+                    │                                                                              │                    
+                    │  amarillo trabajo sin commitear · rojo desincronizado, roto o caído          │                    
+                    │  config: /cfg/atalaya/config.toml                                            │                    
+                    ╰──────────────────────────────────────────────────────────────────────────────╯                    
                                                                                                                         
                                                                                                                         
                                                                                                                         
