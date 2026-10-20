@@ -15,6 +15,7 @@ import (
 	"github.com/otuletta/atalaya/internal/ai"
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
+	"github.com/otuletta/atalaya/internal/events"
 	"github.com/otuletta/atalaya/internal/gitparse"
 )
 
@@ -156,11 +157,12 @@ var endpoints = []struct {
 	project, url string
 	base         int64
 	days         int
+	uptime       float64
 }{
-	{"odomto", "https://api.odomto.com/health", 120, 61},
-	{"odomto", "https://odomto.com", 80, 61},
-	{"cue", "https://cue.dev", 210, 9},
-	{"landing", "https://landing.otuletta.dev", 95, 74},
+	{"odomto", "https://api.odomto.com/health", 120, 61, 100},
+	{"odomto", "https://odomto.com", 80, 61, 99.98},
+	{"cue", "https://cue.dev", 210, 9, 97.2},
+	{"landing", "https://landing.otuletta.dev", 95, 74, 100},
 }
 
 func (h *health) step(now time.Time) collector.HealthSnapshot {
@@ -177,7 +179,15 @@ func (h *health) step(now time.Time) collector.HealthSnapshot {
 			ok = false
 		}
 		c := collector.Check{Project: e.project, URL: e.url, OK: ok, LatencyMS: lat, CheckedAt: now,
-			TLS: &collector.TLSInfo{DaysLeft: e.days, NotAfter: now.Add(time.Duration(e.days) * 24 * time.Hour), Issuer: "R11", Subject: e.url[8:]}}
+			TLS:   &collector.TLSInfo{DaysLeft: e.days, NotAfter: now.Add(time.Duration(e.days) * 24 * time.Hour), Issuer: "R11", Subject: e.url[8:]},
+			Stats: &collector.HealthStats{Uptime24h: e.uptime, Uptime7d: e.uptime - 0.02, P95MS: e.base * 2}}
+		if e.project == "cue" {
+			c.Stats.Incidents = []collector.Incident{{Start: h.start.Add(-3 * time.Hour), End: h.start.Add(-3*time.Hour + 4*time.Minute)}}
+		}
+		if !ok {
+			c.Stats.Uptime24h -= float64(h.n-34) * 0.4
+			c.Stats.Incidents = []collector.Incident{{Start: now.Add(-time.Duration(h.n-34) * 2 * time.Second)}}
+		}
 		if ok {
 			c.Status = 200
 		} else {
@@ -246,6 +256,22 @@ func agents(start time.Time, el time.Duration) collector.Snapshot {
 				Activity: "Bash: npm install @simplewebauthn/server", LastAt: start.Add(-2 * time.Minute)}},
 		{PID: 52011, Name: "cline", Project: "landing", Cwd: "/demo/landing", Started: start.Add(-8 * time.Minute), Cmdline: "cline"},
 	}}
+}
+
+// SeedEvents gives the demo's Activity panel a believable past.
+func SeedEvents(log *events.Log, now time.Time) {
+	for _, e := range []events.Event{
+		{At: now.Add(-5 * time.Hour), Kind: "agent_ended", Severity: events.Info, Project: "landing", Title: "claude terminó en landing", Body: "Hero nuevo"},
+		{At: now.Add(-3 * time.Hour), Kind: "prod_down", Severity: events.Bad, Project: "cue", Title: "Producción caída en cue", Body: "https://cue.dev · timeout"},
+		{At: now.Add(-3*time.Hour + 4*time.Minute), Kind: "prod_up", Severity: events.Good, Project: "cue", Title: "Producción recuperada en cue", Body: "https://cue.dev"},
+		{At: now.Add(-2 * time.Hour), Kind: "pr_opened", Severity: events.Info, Project: "odomto", Title: "Nuevo PR #95 en odomto", Body: "Bump vite from 6.3.5 to 7.1.0 · dependabot"},
+		{At: now.Add(-time.Hour), Kind: "ci_broken", Severity: events.Bad, Project: "odomto", Title: "CI roto en odomto", Body: "main · CI",
+			URL: "https://github.com/otuletta/odomto/actions/runs/1234"},
+		{At: now.Add(-40 * time.Minute), Kind: "review_requested", Severity: events.Ask, Project: "odomto", Title: "Te piden review en otuletta/odomto",
+			Body: "#88 Migrar a Bubble Tea v2 · grace", URL: "https://github.com/otuletta/odomto/pull/88"},
+	} {
+		_ = log.Append(e)
+	}
 }
 
 // Actions are inert in the demo: nothing real may be opened, pulled or

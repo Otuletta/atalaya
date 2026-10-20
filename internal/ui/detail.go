@@ -8,6 +8,7 @@ import (
 
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
+	"github.com/otuletta/atalaya/internal/events"
 	"github.com/otuletta/atalaya/internal/store"
 )
 
@@ -183,6 +184,23 @@ func (m Model) detail(item any) string {
 			d.kv("sujeto", t.Subject)
 			d.kv("emisor", t.Issuer)
 		}
+		if s := it.Stats; s != nil {
+			d.title("Disponibilidad")
+			d.kv("uptime 24h", uptimeCell(s.Uptime24h))
+			d.kv("uptime 7d", uptimeCell(s.Uptime7d))
+			if s.P95MS > 0 {
+				d.kv("p95 24h", fmt.Sprintf("%d ms", s.P95MS))
+			}
+			d.kv("incidentes 7d", len(s.Incidents))
+			for i := len(s.Incidents) - 1; i >= 0 && i >= len(s.Incidents)-5; i-- {
+				in := s.Incidents[i]
+				span := sRed.Render("en curso")
+				if !in.End.IsZero() {
+					span = dur(in.End.Sub(in.Start))
+				}
+				d.line(sRed.Render("✗ ") + in.Start.Local().Format("02/01 15:04") + sDim.Render(" · ") + span)
+			}
+		}
 		d.title(fmt.Sprintf("Historial (%d muestras)", len(it.History)))
 		d.line(sparkline(it.History, 60))
 		for i := len(it.History) - 1; i >= 0 && i >= len(it.History)-10; i-- {
@@ -206,6 +224,18 @@ func (m Model) detail(item any) string {
 		d.kv("comando", it.Cmdline)
 		d.title("Acciones")
 		d.line(fmt.Sprintf("o  abrir http://localhost:%d    x  matar el proceso (SIGTERM)", it.Port))
+
+	case events.Event:
+		d.title(it.Title)
+		d.kv("cuándo", stamp(m.now, it.At))
+		d.kv("proyecto", it.Project)
+		d.kv("tipo", it.Kind)
+		d.kv("detalle", it.Body)
+		d.kv("enlace", it.URL)
+		if it.URL != "" {
+			d.title("Acciones")
+			d.line("o  abrir el enlace")
+		}
 
 	case collector.Container:
 		d.title(it.Name)

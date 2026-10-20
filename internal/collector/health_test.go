@@ -2,8 +2,11 @@ package collector
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -89,5 +92,90 @@ func TestHealthTimeout(t *testing.T) {
 	}
 	if c := snap.(HealthSnapshot).Checks[0]; c.Err != "timeout" {
 		t.Errorf("err = %q, want timeout", c.Err)
+	}
+}
+
+func TestSummarize(t *testing.T) {
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	var samples []Sample
+	add := func(ago time.Duration, ms int64, ok bool) {
+		samples = append(samples, Sample{At: now.Add(-ago), LatencyMS: ms, OK: ok})
+	}
+	// Three days ago: a 2-check outage (an incident), then a lone failure
+	// (not one).
+	add(72*time.Hour, 100, false)
+	add(71*time.Hour, 100, false)
+	add(70*time.Hour, 100, true)
+	add(69*time.Hour, 100, false)
+	add(68*time.Hour, 100, true)
+	// Today: 18 fast checks, 2 slow ones, then down right now.
+	for i := range 20 {
+		ms := int64(100)
+		if i >= 18 {
+			ms = 900
+		}
+		add(time.Duration(20-i)*time.Hour, ms, true)
+	}
+	add(10*time.Minute, 0, false)
+	add(5*time.Minute, 0, false)
+	add(8*24*time.Hour, 1, false) // outside the week: ignored
+
+	s := summarize(samples, now)
+	if got := fmt.Sprintf("%.1f", s.Uptime24h); got != "90.9" { // 20 of 22
+		t.Errorf("uptime 24h = %s", got)
+	}
+	if got := fmt.Sprintf("%.1f", s.Uptime7d); got != "81.5" { // 22 of 27
+		t.Errorf("uptime 7d = %s", got)
+	}
+	if s.P95MS != 900 {
+		t.Errorf("p95 = %d", s.P95MS)
+	}
+	if len(s.Incidents) != 2 || !s.Incidents[0].Start.Equal(now.Add(-72*time.Hour)) ||
+		!s.Incidents[0].End.Equal(now.Add(-70*time.Hour)) || !s.Incidents[1].End.IsZero() ||
+		!s.Incidents[1].Start.Equal(now.Add(-10*time.Minute)) {
+		t.Errorf("incidents = %+v", s.Incidents)
+	}
+	if empty := summarize(nil, now); empty.Uptime24h != -1 || empty.P95MS != 0 {
+		t.Errorf("no samples = %+v", empty)
+	}
+}
+
+func TestHealthHistorySurvivesRestarts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	path := filepath.Join(t.TempDir(), "state", "health.jsonl")
+	clock := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	// A sample from two weeks ago, to be dropped on load.
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := fmt.Sprintf(`{"u":%q,"t":%d,"ms":5,"ok":false}`+"\n", srv.URL, clock.Add(-14*24*time.Hour).Unix())
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newHealth := func() *Health {
+		return &Health{Projects: []config.Project{{Name: "x", Health: []string{srv.URL}}}, HistoryPath: path,
+			Now: func() time.Time { return clock }}
+	}
+	h := newHealth()
+	for range 3 {
+		if _, err := h.Collect(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		clock = clock.Add(30 * time.Second)
+	}
+
+	// A new process: the history comes back from disk.
+	snap, err := newHealth().Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := snap.(HealthSnapshot).Checks[0]
+	if len(c.History) != 4 || c.Stats == nil || c.Stats.Uptime24h != 100 {
+		t.Errorf("history = %d samples, stats = %+v", len(c.History), c.Stats)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), `"ms":5`) {
+		t.Error("the two-week-old sample was not pruned from the file")
 	}
 }

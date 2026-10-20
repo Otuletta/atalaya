@@ -1,20 +1,20 @@
-◆ ATALAYA  0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●3 ◉1                     12:00:00
+◆ ATALAYA  0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●3 ◉1 6 Actividad         12:00:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ 
 │ 1 Repos ●1 ●1                       │ │ 2 GitHub ✗1 ◉2                      │ │ 3 Producción ✗1                     │ 
-│ 1 desincronizado · 1 con cambios    │ │ CI ✓0 ✗1 ⟳1 · 5 PRs                 │ │ 2 endpoints  ✓1 ✗1                  │ 
+│ 1 desincronizado · 1 con cambios    │ │ CI ✓0 ✗1 ⟳1 · 5 PRs                 │ │ 2 endpoints  ✓1 ✗1 · 24h 91.3%      │ 
 │ odomto feat/sparkline ↑2 ↓1 +1 ~2 … │ │ odomto ✗ CI 3m15s                   │ │ ● cue.dev           timeout  ▇█××   │ 
 │ kdx feat/login ✓ ~4                 │ │ ◉ #7 Terraform 2.0 · linus          │ │ ● api.odomto.com    142 ms   █▃▃×▃▃ │ 
 │                                     │ │ ◉ #41 Revisa el parser · grace      │ │                                     │ 
 ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ 
-╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮                                         
-│ 4 Local                             │ │ 5 Agentes ●3 ◉1                     │                                         
-│ 3 puertos · 1 contenedor            │ │ 3 sesiones · 1 te esperan           │                                         
-│ :3000 → node · odomto               │ │ ◉ te espera kdx Login con passkeys  │                                         
-│ :8080 → kdx-server · kdx            │ │ ⟳ trabajando odomto editando model… │                                         
-│ :5432 → postgres                    │ │ — — 1m30s                           │                                         
-│ ollama qwen3:8b                     │ │                                     │                                         
-╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯                                         
+╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ 
+│ 4 Local                             │ │ 5 Agentes ●3 ◉1                     │ │ 6 Actividad                         │ 
+│ 3 puertos · 1 contenedor            │ │ 3 sesiones · 1 te espera            │ │ ✗ CI roto en odomto · hace 2m       │ 
+│ :3000 → node · odomto               │ │ ◉ te espera kdx Login con passkeys  │ │ ◉ Te piden review en otuletta/odom… │ 
+│ :8080 → kdx-server · kdx            │ │ ⟳ trabajando odomto editando model… │ │ · Nuevo PR #7 en kdx · 18/10 10:00  │ 
+│ :5432 → postgres                    │ │ — — 1m30s                           │ │                                     │ 
+│ ollama qwen3:8b                     │ │                                     │ │                                     │ 
+╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ 
 
 
 
@@ -26,5 +26,5 @@
 
 
 
-8 fuentes al día · enter abre una tarjeta                                                                               
+9 fuentes al día · enter abre una tarjeta                                                                               
 tab panel · j/↓ navegar · / filtrar · enter detalle · o abrir · p pull · x matar · r refrescar · ? ayuda · q salir      

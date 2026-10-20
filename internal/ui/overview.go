@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/otuletta/atalaya/internal/collector"
+	"github.com/otuletta/atalaya/internal/events"
 	"github.com/otuletta/atalaya/internal/store"
 )
 
@@ -22,7 +23,20 @@ type card struct {
 }
 
 func (m Model) cards() []card {
-	return []card{m.reposCard(), m.githubCard(), m.healthCard(), m.localCard(), m.agentsCard()}
+	return []card{m.reposCard(), m.githubCard(), m.healthCard(), m.localCard(), m.agentsCard(), m.activityCard()}
+}
+
+func (m Model) activityCard() card {
+	c := card{panel: PanelActivity}
+	snap, ok := store.Data[events.Snapshot](m.state, "events")
+	if !ok || len(snap.Events) == 0 {
+		c.lines = []string{sDim.Render("sin novedades")}
+		return c
+	}
+	for _, e := range snap.Events {
+		c.lines = append(c.lines, eventIcon(e)+" "+e.Title+sDim.Render(" · "+when(m.now, e.At)))
+	}
+	return c
 }
 
 // overviewCols is how many cards fit side by side.
@@ -229,6 +243,15 @@ func (m Model) healthCard() card {
 	if down := len(snap.Checks) - up; down > 0 {
 		head += " " + sRed.Render(fmt.Sprintf("✗%d", down))
 	}
+	worst := -1.0
+	for _, ch := range snap.Checks {
+		if ch.Stats != nil && ch.Stats.Uptime24h >= 0 && (worst < 0 || ch.Stats.Uptime24h < worst) {
+			worst = ch.Stats.Uptime24h
+		}
+	}
+	if worst >= 0 {
+		head += sDim.Render(" · 24h ") + uptimeCell(worst)
+	}
 	c.lines = append(c.lines, fmt.Sprintf("%d endpoints  %s", len(snap.Checks), head))
 	// Down endpoints first.
 	checks := slices.Clone(snap.Checks)
@@ -307,7 +330,7 @@ func (m Model) agentsCard() card {
 	}
 	head := plural(len(snap.Agents), "sesión", "sesiones")
 	if waiting, blocked := agentAttention(snap); waiting+blocked > 0 {
-		head += sYellow.Render(fmt.Sprintf(" · %d te esperan", waiting+blocked))
+		head += sYellow.Render(" · " + plural(waiting+blocked, "te espera", "te esperan"))
 	}
 	c.lines = append(c.lines, head)
 	// Agents that need you first, then the ones working.

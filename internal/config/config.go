@@ -58,6 +58,8 @@ type Notify struct {
 	// Agents notifies when a coding agent finishes its turn and waits for
 	// you, or seems stuck on a permission prompt.
 	Agents *bool `toml:"agents"`
+	// Reviews notifies when someone asks you for a review.
+	Reviews *bool `toml:"reviews"`
 }
 
 func on(b *bool) bool { return b == nil || *b }
@@ -70,6 +72,9 @@ func (n Notify) WantHealth() bool { return on(n.Enabled) && on(n.Health) }
 
 // WantAgents reports whether agent transitions are notified.
 func (n Notify) WantAgents() bool { return on(n.Enabled) && on(n.Agents) }
+
+// WantReviews reports whether new review requests are notified.
+func (n Notify) WantReviews() bool { return on(n.Enabled) && on(n.Reviews) }
 
 // AI configures the Claude Code integration (keys a and c).
 type AI struct {
@@ -160,6 +165,20 @@ func DefaultPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".config", "atalaya", "config.toml"), nil
+}
+
+// StateDir is where Atalaya keeps what it learns, not what you edit: the
+// activity log and the health history. $XDG_STATE_HOME/atalaya or
+// ~/.local/state/atalaya.
+func StateDir() (string, error) {
+	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
+		return filepath.Join(x, "atalaya"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "state", "atalaya"), nil
 }
 
 // ErrNotFound is returned by Load when the file does not exist.

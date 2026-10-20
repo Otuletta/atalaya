@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/otuletta/atalaya/internal/collector"
+	"github.com/otuletta/atalaya/internal/events"
 	"github.com/otuletta/atalaya/internal/store"
 )
 
@@ -156,6 +157,94 @@ func TestAgentTransitions(t *testing.T) {
 		if got := rec.take(); !slices.Equal(got, s.want) {
 			t.Errorf("step %d %v: sent %q, want %q", i, s.states, got, s.want)
 		}
+	}
+}
+
+func repoWithPRs(numbers ...int) collector.GitHubRepo {
+	r := collector.GitHubRepo{Project: "kdx", Repo: "o/kdx", URL: "https://github.com/o/kdx"}
+	for _, n := range numbers {
+		r.PRs = append(r.PRs, collector.PullRequest{Number: n, Title: fmt.Sprint("pr ", n), Author: "ada",
+			URL: fmt.Sprint("https://github.com/o/kdx/pull/", n)})
+	}
+	r.OpenPRs = len(r.PRs)
+	return r
+}
+
+func TestEventsAreLoggedAndPublished(t *testing.T) {
+	rec := &recorder{}
+	log, _ := events.Open("")
+	st := store.New()
+	at := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	d := &Detector{Notifier: rec, Rules: Rules{Reviews: true}, Log: log, Store: st, Now: func() time.Time { return at }}
+
+	review := collector.PullRequest{Repo: "o/kdx", Number: 9, Title: "Passkeys", Author: "grace", URL: "https://github.com/o/kdx/pull/9"}
+	gh := func(r collector.GitHubRepo, reviews ...collector.PullRequest) collector.GitHubSnapshot {
+		r.ReviewRequests = reviews
+		return collector.GitHubSnapshot{Repos: []collector.GitHubRepo{r}}
+	}
+	d.Observe(state(map[string]collector.Snapshot{"github": gh(repoWithPRs(1, 2))}))         // baseline
+	d.Observe(state(map[string]collector.Snapshot{"github": gh(repoWithPRs(2, 3), review)})) // 1 closed, 3 opened, a review
+	d.Observe(state(map[string]collector.Snapshot{"github": gh(repoWithPRs(2, 3), review)})) // nothing new
+
+	got := log.Recent(10)
+	var kinds []string
+	for _, e := range got {
+		kinds = append(kinds, e.Kind+": "+e.Title)
+	}
+	want := []string{
+		"review_requested: Te piden review en o/kdx",
+		"pr_closed: PR #1 cerrado o mergeado en kdx",
+		"pr_opened: Nuevo PR #3 en kdx",
+	}
+	if !slices.Equal(kinds, want) {
+		t.Errorf("events (newest first):\n%s\nwant:\n%s", strings.Join(kinds, "\n"), strings.Join(want, "\n"))
+	}
+	if !got[0].At.Equal(at) || got[0].URL != review.URL {
+		t.Errorf("review event = %+v", got[0])
+	}
+	// Only the review becomes a notification; PRs are just logged.
+	if n := rec.take(); !slices.Equal(n, []string{"◉ Te piden review en o/kdx | #9 Passkeys · grace"}) {
+		t.Errorf("notified %q", n)
+	}
+	pub, ok := store.Data[events.Snapshot](st.Snapshot(), "events")
+	if !ok || len(pub.Events) != 3 {
+		t.Errorf("published = %+v", pub)
+	}
+}
+
+func TestPRsBeyondTheFirstPageAreIgnored(t *testing.T) {
+	log, _ := events.Open("")
+	d := &Detector{Notifier: &recorder{}, Log: log}
+	r := repoWithPRs(1, 2)
+	r.OpenPRs = 40 // more than the query returned
+	d.Observe(state(map[string]collector.Snapshot{"github": collector.GitHubSnapshot{Repos: []collector.GitHubRepo{r}}}))
+	r = repoWithPRs(2, 5)
+	r.OpenPRs = 40
+	d.Observe(state(map[string]collector.Snapshot{"github": collector.GitHubSnapshot{Repos: []collector.GitHubRepo{r}}}))
+	if got := log.Recent(10); len(got) != 0 {
+		t.Errorf("events for a truncated PR list: %+v", got)
+	}
+}
+
+func TestAgentsStartAndEnd(t *testing.T) {
+	log, _ := events.Open("")
+	d := &Detector{Notifier: &recorder{}, Log: log}
+	a := func(pids ...int32) collector.AgentsSnapshot {
+		var as []collector.Agent
+		for _, p := range pids {
+			as = append(as, collector.Agent{PID: p, Name: "claude", Project: "cue"})
+		}
+		return collector.AgentsSnapshot{Agents: as}
+	}
+	d.Observe(state(map[string]collector.Snapshot{"agents": a(1)}))
+	d.Observe(state(map[string]collector.Snapshot{"agents": a(1, 2)}))
+	d.Observe(state(map[string]collector.Snapshot{"agents": a(2)}))
+	var titles []string
+	for _, e := range log.Recent(10) {
+		titles = append(titles, e.Title)
+	}
+	if !slices.Equal(titles, []string{"claude terminó en cue", "claude empezó en cue"}) {
+		t.Errorf("events = %q", titles)
 	}
 }
 

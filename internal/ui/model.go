@@ -23,6 +23,7 @@ import (
 	"github.com/otuletta/atalaya/internal/ai"
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
+	"github.com/otuletta/atalaya/internal/events"
 	"github.com/otuletta/atalaya/internal/store"
 )
 
@@ -106,6 +107,9 @@ type Model struct {
 	refreshing bool
 	// noteFailure is the CI a diagnosis note is about, so c works there.
 	noteFailure *ai.Failure
+	// seenUntil is when the Activity panel was last open: newer events
+	// count as unseen in its tab.
+	seenUntil time.Time
 
 	status    string
 	statusErr bool
@@ -133,6 +137,7 @@ func New(d Deps) Model {
 	if d.Store != nil {
 		m.state = d.Store.Snapshot()
 	}
+	m.seenUntil = m.now // history from before this run is not news
 	return m
 }
 
@@ -225,6 +230,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Button == tea.MouseWheelDown:
 			m.move(3)
 		}
+	}
+	if m.panel == PanelActivity {
+		m.seenUntil = m.deps.Now()
 	}
 	m.clampScroll()
 	return m, cmd
@@ -579,6 +587,10 @@ func (m Model) open(item any) tea.Cmd {
 		return openURL(it.URL)
 	case collector.Port:
 		return openURL(fmt.Sprintf("http://localhost:%d", it.Port))
+	case events.Event:
+		if it.URL != "" {
+			return openURL(it.URL)
+		}
 	}
 	return m.statusCmd("o no aplica a este elemento")
 }

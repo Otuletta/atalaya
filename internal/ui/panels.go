@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
+	"github.com/otuletta/atalaya/internal/events"
 	"github.com/otuletta/atalaya/internal/store"
 )
 
@@ -24,15 +26,16 @@ const (
 	PanelHealth
 	PanelLocal
 	PanelAgents
+	PanelActivity
 	panelCount
 )
 
-var panelNames = [panelCount]string{"Resumen", "Repos", "GitHub", "Producción", "Local", "Agentes"}
+var panelNames = [panelCount]string{"Resumen", "Repos", "GitHub", "Producción", "Local", "Agentes", "Actividad"}
 
 // panelSources are the collectors each panel reads, for its status line.
 var panelSources = [panelCount][]string{
 	nil, // the overview reports every source with an error
-	{"git", "fetch"}, {"github"}, {"health"}, {"ports", "docker", "ollama"}, {"agents"},
+	{"git", "fetch"}, {"github"}, {"health"}, {"ports", "docker", "ollama"}, {"agents"}, {"events"},
 }
 
 // row is one line of a panel. Non-selectable rows are section titles and
@@ -90,6 +93,8 @@ func (m Model) build(p Panel) panelView {
 		return m.localPanel()
 	case PanelAgents:
 		return m.agentsPanel()
+	case PanelActivity:
+		return m.activityPanel()
 	}
 	return panelView{}
 }
@@ -458,10 +463,12 @@ func (m Model) healthPanel() panelView {
 		{title: "ENDPOINT", flex: true, min: 24},
 		{title: "ESTADO"},
 		{title: "LATENCIA", right: true},
+		{title: "24H", right: true},
+		{title: "P95", right: true, drop: 1},
 		{title: "TENDENCIA", max: sparkWidth, min: 8},
 		{title: "TLS", right: true},
 	}}
-	const spark = 4 // index of TENDENCIA
+	const spark = 6 // index of TENDENCIA
 	var pv panelView
 	snap, ok := store.Data[collector.HealthSnapshot](m.state, "health")
 	if !ok {
@@ -513,7 +520,34 @@ func healthCells(c collector.Check) []string {
 	}
 	// Placeholder as wide as the sparkline will want; drawn after layout.
 	spark := strings.Repeat(" ", min(len(c.History), sparkWidth))
-	return []string{c.Project, endpoint, status, latency, spark, tlsCell(c.TLS)}
+	uptime, p95 := sDim.Render("—"), sDim.Render("—")
+	if s := c.Stats; s != nil {
+		uptime = uptimeCell(s.Uptime24h)
+		if s.P95MS > 0 {
+			p95 = sDim.Render(fmt.Sprintf("%d ms", s.P95MS))
+		}
+	}
+	return []string{c.Project, endpoint, status, latency, uptime, p95, spark, tlsCell(c.TLS)}
+}
+
+// uptimeCell is "99.9%": green from three nines down to 99%, then yellow,
+// then red under 95%.
+func uptimeCell(pct float64) string {
+	if pct < 0 {
+		return sDim.Render("—")
+	}
+	// Truncated, never rounded up: 99.95% is not "100.0%".
+	s := fmt.Sprintf("%.1f%%", math.Floor(pct*10)/10)
+	if pct == 100 {
+		s = "100%"
+	}
+	switch {
+	case pct >= 99:
+		return sGreen.Render(s)
+	case pct >= 95:
+		return sYellow.Render(s)
+	}
+	return sRed.Render(s)
 }
 
 func tlsCell(t *collector.TLSInfo) string {
@@ -749,6 +783,77 @@ func cmpOr(a, b string) string {
 	return b
 }
 
+// ---- 6. Actividad ----
+
+func (m Model) activityPanel() panelView {
+	t := table{cols: []column{
+		{title: "CUÁNDO", right: true},
+		{title: ""},
+		{title: "PROYECTO", max: 16, min: 6, drop: 1},
+		{title: "EVENTO", max: 44, min: 16},
+		{title: "DETALLE", flex: true, min: 10, drop: 2},
+	}}
+	var pv panelView
+	snap, ok := store.Data[events.Snapshot](m.state, "events")
+	if !ok || len(snap.Events) == 0 {
+		pv.empty = sDim.Render("Todavía no ha pasado nada: aquí aparecerán CI rotos y arreglados, caídas, reviews, PRs y agentes.")
+		return pv
+	}
+	var evs []events.Event
+	for _, e := range snap.Events {
+		if !m.match(e.Project, e.Title, e.Body, e.Kind) {
+			continue
+		}
+		t.add(sDim.Render(when(m.now, e.At)), eventIcon(e), sCyan.Render(e.Project), link(e.URL, e.Title), sDim.Render(e.Body))
+		evs = append(evs, e)
+	}
+	ws := t.layout(m.contentWidth())
+	pv.header = t.header(ws)
+	for i, l := range t.lines(ws) {
+		pv.rows = append(pv.rows, row{key: fmt.Sprintf("event:%d:%s", evs[i].At.UnixNano(), evs[i].Kind),
+			selectable: true, item: evs[i], line: l})
+	}
+	return pv
+}
+
+// when is "hace 3m" today and a date before.
+func when(now, t time.Time) string {
+	if now.Sub(t) < 24*time.Hour {
+		return hace(now, t)
+	}
+	return t.Local().Format("02/01 15:04")
+}
+
+func eventIcon(e events.Event) string {
+	switch {
+	case e.Kind == "agent_blocked":
+		return sRed.Render("⏸")
+	case e.Severity == events.Bad:
+		return sRed.Render("✗")
+	case e.Severity == events.Good:
+		return sGreen.Render("✓")
+	case e.Severity == events.Ask:
+		return sYellow.Render("◉")
+	}
+	return sDim.Render("·")
+}
+
+// unseen counts the events that matter (not plain info) since the
+// Activity panel was last open.
+func (m Model) unseen() int {
+	snap, ok := store.Data[events.Snapshot](m.state, "events")
+	if !ok {
+		return 0
+	}
+	n := 0
+	for _, e := range snap.Events {
+		if e.At.After(m.seenUntil) && e.Severity != events.Info {
+			n++
+		}
+	}
+	return n
+}
+
 // ---- tab badges ----
 
 // badge summarizes what needs attention in a panel, for its tab label.
@@ -793,6 +898,8 @@ func (m Model) badge(p Panel) string {
 			waiting, blocked := agentAttention(s)
 			return badges(count("●", len(s.Agents), sCyan), count("◉", waiting, sYellow), count("⏸", blocked, sRed))
 		}
+	case PanelActivity:
+		return count("●", m.unseen(), sYellow)
 	}
 	return ""
 }

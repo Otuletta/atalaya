@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
 	"github.com/otuletta/atalaya/internal/demo"
+	"github.com/otuletta/atalaya/internal/events"
 	"github.com/otuletta/atalaya/internal/notify"
 	"github.com/otuletta/atalaya/internal/scheduler"
 	"github.com/otuletta/atalaya/internal/store"
@@ -43,6 +45,7 @@ Uso:
   atalaya --demo                       abre el panel con datos simulados
   atalaya status [--json]              imprime el estado una vez y sale
   atalaya init [carpeta] [--depth N]   detecta repos y genera la config
+  atalaya log [-n 30] [--json]         historial de lo que ha pasado
   atalaya version
 
 La config vive en %s
@@ -111,6 +114,15 @@ func run(args []string, stdout, stderr io.Writer) error {
 			dir = fs.Arg(0)
 		}
 		return initConfig(ctx, *cfgPath, dir, *depth, stdout)
+	case "log":
+		fs := flag.NewFlagSet("log", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		n := fs.Int("n", 30, "cuántos eventos mostrar")
+		asJSON := fs.Bool("json", false, "salida JSON")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		return showLog(*n, *asJSON, stdout)
 	case "version", "--version":
 		fmt.Fprintln(stdout, "atalaya", version)
 		return nil
@@ -130,13 +142,18 @@ func loadConfig(path string) (*config.Config, error) {
 }
 
 // collectors builds every source from the config. The order is the order
-// of the JSON output and of the scheduler's goroutines.
-func collectors(cfg *config.Config, withFetch bool) []collector.Collector {
+// of the JSON output and of the scheduler's goroutines. stateDir, when set,
+// is where the health history persists.
+func collectors(cfg *config.Config, withFetch bool, stateDir string) []collector.Collector {
 	iv := cfg.Intervals
+	health := &collector.Health{Projects: cfg.Projects, Every: iv.Health.Duration}
+	if stateDir != "" {
+		health.HistoryPath = filepath.Join(stateDir, "health.jsonl")
+	}
 	cs := []collector.Collector{
 		&collector.Git{Projects: cfg.Projects, Every: iv.Git.Duration},
 		&collector.GitHub{Projects: cfg.Projects, Every: iv.GitHub.Duration},
-		&collector.Health{Projects: cfg.Projects, Every: iv.Health.Duration},
+		health,
 		&collector.Ports{Projects: cfg.Projects, Ignore: cfg.Ports.Ignore, ShowEphemeral: cfg.Ports.ShowEphemeral, Every: iv.Ports.Duration},
 		&collector.Docker{Projects: cfg.Projects, Every: iv.Docker.Duration},
 		&collector.Ollama{Host: cfg.OllamaHost, Every: iv.Ollama.Duration},
@@ -155,39 +172,72 @@ var backgroundSources = []string{"git", "ports", "agents", "docker", "ollama"}
 
 const backgroundFactor = 5
 
-// sources resolves what to watch: the real config and collectors, or the
-// simulated ones of --demo.
-func sources(path string, demoMode, withFetch bool) (*config.Config, []collector.Collector, ui.Actions, error) {
+// setup is what a command works with: the config, the sources, what the
+// action keys do and the activity log.
+type setup struct {
+	cfg     *config.Config
+	sources []collector.Collector
+	actions ui.Actions
+	log     *events.Log
+}
+
+// openLog opens the activity log in the state dir; without one, the log
+// lives in memory.
+func openLog() (*events.Log, string) {
+	dir, err := config.StateDir()
+	if err == nil {
+		if log, err := events.Open(filepath.Join(dir, "events.jsonl")); err == nil {
+			return log, dir
+		}
+	}
+	log, _ := events.Open("")
+	return log, ""
+}
+
+// load resolves what to watch: the real config, or the simulated sources of
+// --demo (with a seeded activity log that is never written to disk).
+func load(path string, demoMode, withFetch bool) (setup, error) {
 	if demoMode {
-		return demo.Config(), demo.Collectors(time.Now()), demo.Actions{}, nil
+		log, _ := events.Open("")
+		demo.SeedEvents(log, time.Now())
+		return setup{demo.Config(), demo.Collectors(time.Now()), demo.Actions{}, log}, nil
 	}
 	cfg, err := loadConfig(path)
 	if err != nil {
-		return nil, nil, nil, err
+		return setup{}, err
 	}
-	return cfg, collectors(cfg, withFetch), actions.System{EditorSetting: cfg.Editor, Assistant: ai.Assistant{Command: cfg.AI.Command}}, nil
+	log, stateDir := openLog()
+	acts := actions.System{EditorSetting: cfg.Editor, Assistant: ai.Assistant{Command: cfg.AI.Command}}
+	return setup{cfg, collectors(cfg, withFetch, stateDir), acts, log}, nil
 }
 
 func dashboard(ctx context.Context, path string, demoMode bool) error {
-	cfg, cs, acts, err := sources(path, demoMode, true)
+	s, err := load(path, demoMode, true)
 	if err != nil {
 		return err
 	}
+	cfg := s.cfg
 	st := store.New()
-	sched := scheduler.New(st, cs...)
+	sched := scheduler.New(st, s.sources...)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go sched.Run(ctx)
 
-	if rules := (notify.Rules{CI: cfg.Notify.WantCI(), Health: cfg.Notify.WantHealth(), Agents: cfg.Notify.WantAgents()}); rules.CI || rules.Health || rules.Agents {
-		go (&notify.Detector{Notifier: notify.System(), Rules: rules}).Watch(ctx, st)
-	}
+	// The detector always runs: it fills the activity log; the rules only
+	// decide which events also become notifications.
+	go (&notify.Detector{
+		Notifier: notify.System(),
+		Rules: notify.Rules{CI: cfg.Notify.WantCI(), Health: cfg.Notify.WantHealth(),
+			Agents: cfg.Notify.WantAgents(), Reviews: cfg.Notify.WantReviews()},
+		Log:   s.log,
+		Store: st,
+	}).Watch(ctx, st)
 
 	m := ui.New(ui.Deps{
 		Config:  cfg,
 		Store:   st,
 		Refresh: sched.Refresh,
-		Actions: acts,
+		Actions: s.actions,
 		Focus: func(focused bool) {
 			if focused {
 				sched.SlowDown(1, backgroundSources...)
@@ -206,7 +256,7 @@ func dashboard(ctx context.Context, path string, demoMode bool) error {
 }
 
 func status(ctx context.Context, path string, demoMode, asJSON, fetch bool, timeout time.Duration, out io.Writer) error {
-	cfg, cs, _, err := sources(path, demoMode, false)
+	s, err := load(path, demoMode, false)
 	if err != nil {
 		return err
 	}
@@ -215,9 +265,10 @@ func status(ctx context.Context, path string, demoMode, asJSON, fetch bool, time
 	st := store.New()
 	if fetch && !demoMode {
 		// Fetch first so ahead/behind reflects the remote.
-		scheduler.New(st, &collector.Fetch{Projects: cfg.Projects, Every: time.Hour}).RunOnce(ctx)
+		scheduler.New(st, &collector.Fetch{Projects: s.cfg.Projects, Every: time.Hour}).RunOnce(ctx)
 	}
-	scheduler.New(st, cs...).RunOnce(ctx)
+	scheduler.New(st, s.sources...).RunOnce(ctx)
+	st.Put("events", events.Snapshot{Events: s.log.Recent(50)}, nil, time.Time{})
 	snap := st.Snapshot()
 
 	if asJSON {
@@ -233,8 +284,37 @@ func status(ctx context.Context, path string, demoMode, asJSON, fetch bool, time
 	if w, _, err := term.GetSize(os.Stdout.Fd()); err == nil && w > 0 {
 		width = w
 	}
-	_, err = lipgloss.Fprint(out, ui.Summary(cfg, snap, time.Now(), width))
+	_, err = lipgloss.Fprint(out, ui.Summary(s.cfg, snap, time.Now(), width))
 	return err
+}
+
+// showLog prints the activity log, oldest first, like a shell history.
+func showLog(n int, asJSON bool, out io.Writer) error {
+	log, dir := openLog()
+	evs := log.Recent(n)
+	if asJSON {
+		enc := json.NewEncoder(out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(evs)
+	}
+	if len(evs) == 0 {
+		where := "en memoria"
+		if dir != "" {
+			where = config.ContractHome(filepath.Join(dir, "events.jsonl"))
+		}
+		fmt.Fprintf(out, "Todavía no hay eventos (%s). Atalaya los registra mientras el panel está abierto.\n", where)
+		return nil
+	}
+	icons := map[string]string{events.Bad: "✗", events.Good: "✓", events.Ask: "◉", events.Info: "·"}
+	for i := len(evs) - 1; i >= 0; i-- {
+		e := evs[i]
+		line := fmt.Sprintf("%s  %s  %s", e.At.Local().Format("2006-01-02 15:04"), icons[e.Severity], e.Title)
+		if e.Body != "" {
+			line += "  — " + e.Body
+		}
+		fmt.Fprintln(out, line)
+	}
+	return nil
 }
 
 func initConfig(ctx context.Context, path, dir string, depth int, out io.Writer) error {

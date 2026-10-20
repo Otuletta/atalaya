@@ -13,8 +13,9 @@ Sustituye el ritual de abrir GitHub, revisar el CI, comprobar que producción re
 | **0 Resumen** | La pantalla de inicio: una tarjeta por fuente con solo lo que necesita atención. `enter` abre el panel de la tarjeta. |
 | **1 Repos** | Rama, commits adelante/atrás del remoto, cambios (staged, modificados, sin seguimiento, conflictos), stash y último commit. **Amarillo**: trabajo sin commitear. **Rojo**: desincronizado. |
 | **2 GitHub** | Último run de CI por repo (✓ ✗ ⟳ con duración), el CI y el PR de **la rama en la que estás trabajando**, PRs abiertos con el estado de sus checks, PRs donde te piden review (◉) y checks fallidos. Los PRs de bots (dependabot, renovate…) se agrupan en una fila por bot. |
-| **3 Producción** | Health checks HTTP: código, latencia, sparkline de los últimos minutos y **días restantes del certificado TLS**. |
+| **3 Producción** | Health checks HTTP: código, latencia, **uptime de 24 h y p95**, sparkline y **días restantes del certificado TLS**. El historial se guarda: el detalle tiene uptime de 7 días e incidentes. |
 | **4 Local** | Puertos en escucha mapeados a proceso y proyecto (`:3000 → node · odomto`), contenedores Docker y modelos cargados en Ollama. |
+| **6 Actividad** | La memoria de la torre: CI rotos y arreglados, caídas y recuperaciones, reviews que te piden, PRs nuevos y cerrados, agentes que empiezan, terminan o te esperan. La pestaña cuenta lo que no has visto. |
 | **5 Agentes** | Sesiones de Claude Code o Cline: repo, rama o worktree (⎇), CPU y, leyendo la transcripción de Claude Code, **qué está haciendo** («editando model.go», «Bash: go test») o si **te espera** (◉) o parece atascada en un permiso (⏸). Los worktrees de cada repo se ven en su detalle. |
 
 **Detalles de terminal moderna.** Los números de PR, los runs de CI, los endpoints y los puertos son enlaces clicables (OSC 8, cmd+clic en iTerm2, Ghostty, WezTerm…). La pestaña de la terminal muestra el estado (`atalaya ✗2 CI · ✗1 prod`) aunque esté en segundo plano, y mientras carga o refresca aparece la barra de progreso nativa de la terminal.
@@ -49,7 +50,7 @@ atalaya --demo               # o pruébalo con datos simulados, sin config
 
 | Tecla | Acción |
 |---|---|
-| `tab` / `shift+tab` / `0-5` | Cambiar de panel |
+| `tab` / `shift+tab` / `0-6` | Cambiar de panel |
 | `j` `k` o flechas, `g` `G`, `ctrl+u` `ctrl+d` | Navegar |
 | `/` | Filtrar proyectos (`esc` limpia el filtro) |
 | `enter` | Detalle del item: archivos cambiados, PRs, historial de latencia, comando del proceso… |
@@ -70,6 +71,7 @@ Las acciones destructivas siempre piden confirmación. `p` usa `--ff-only`, así
 atalaya status            # todos los paneles como texto, una vez
 atalaya status --json     # lo mismo en JSON, para scripts
 atalaya status --fetch    # hace git fetch antes de calcular adelante/atrás
+atalaya log               # el historial de eventos, como un `git log` de tus proyectos
 ```
 
 ```bash
@@ -110,6 +112,7 @@ enabled = true
 ci = true                              # un CI se rompe o se arregla
 health = true                          # un endpoint se cae o se recupera
 agents = true                          # un agente termina su turno o se atasca en un permiso
+reviews = true                         # alguien te pide una review
 
 [ports]
 ignore = ["rapportd", "ControlCenter"] # procesos a ocultar (por defecto, demonios de macOS)
@@ -125,6 +128,8 @@ agents = "5s"
 docker = "10s"
 ollama = "10s"
 ```
+
+Lo que Atalaya aprende vive aparte, en `~/.local/state/atalaya/` (o `$XDG_STATE_HOME/atalaya`): `events.jsonl` (la actividad) y `health.jsonl` (una semana de health checks).
 
 La validación informa de **todos** los errores a la vez, incluidas claves mal escritas (`helth = …`).
 
@@ -154,6 +159,7 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 - **Git sin efectos secundarios.** `git status --porcelain=v2 -z` con `GIT_OPTIONAL_LOCKS=0`: consultar cada 5 s nunca toma `index.lock` ni choca con tus comandos. El parser propio (`internal/gitparse`) se prueba con fixtures generados desde repos reales en cada estado (renombrado, conflicto, detached, upstream borrado…) y con fuzzing.
 - **El fetch es una fuente aparte.** Así adelante/atrás refleja el remoto y no solo tu último `git fetch`, sin frenar el sondeo de 5 s.
 - **GitHub en una sola query GraphQL**, con un alias por repo (`r0: repository(…)`, `r1: …`) y otro por rama local (`b0: repository(…){ ref(qualifiedName: "refs/heads/…") }`), construida en tiempo de ejecución con `reflect.StructOf`, porque `githubv4` deriva la query de un tipo y el nombre de la rama va en el tag. Cuesta 1 punto de rate limit por minuto. GraphQL no admite peticiones condicionales (ETag), así que el presupuesto se protege leyendo el campo `rateLimit` de la propia respuesta y las cabeceras `Retry-After` y `X-RateLimit-Reset`: el scheduler espera hasta el reset en lugar de insistir.
+- **Cada cambio es un evento.** El detector compara cada estado con el anterior y produce eventos: van al log de actividad (siempre) y a una notificación (si `[notify]` lo pide). El primer estado visto es la línea base, así que arrancar nunca «descubre» lo que ya era así.
 - **Las notificaciones son un lector más del store** (`internal/notify`): se suscriben como la UI, comparan cada estado con el anterior y solo avisan de transiciones. En macOS el texto viaja a `osascript` como argumento, nunca dentro del código AppleScript, así que unas comillas en el título de un PR no pueden romperlo.
 - **Agentes por su transcripción.** Claude Code guarda cada sesión en `~/.claude/projects/<carpeta>/<id>.jsonl`. Atalaya empareja cada proceso con la suya (por `--resume=<id>` o la más reciente de su carpeta), lee solo los últimos 512 KB, cachea por tamaño y fecha, y deduce el estado del último mensaje: turno terminado → te espera; herramienta pendiente sin actividad ni CPU durante 30 s → probablemente un permiso. El formato es interno de Claude Code, así que todo vive en `collector/sessions.go` y, si cambia, el panel simplemente no muestra sesión.
 - **Menos sondeo sin foco.** La TUI pide a la terminal los eventos de foco. Mientras está en segundo plano, git, puertos, agentes, Docker y Ollama se consultan 5 veces menos; GitHub y health mantienen el ritmo porque alimentan las notificaciones. Al volver, todo se refresca al instante.
@@ -183,7 +189,9 @@ Los tests de la UI usan [teatest](https://github.com/charmbracelet/x/tree/main/e
 | `internal/config` | Carga, validación y `init` |
 | `internal/ui` | Modelo Bubble Tea, paneles, detalle y estilos |
 | `internal/actions` | Lo que hacen `o`, `p` y `x` |
-| `internal/notify` | Notificaciones de transiciones (CI y producción) |
+| `internal/notify` | Detector de cambios: eventos y notificaciones |
+| `internal/events` | El log de actividad (JSON lines, compactado) |
+| `internal/ai` | Diagnóstico y arreglo de CI con Claude Code |
 | `internal/demo` | Fuentes simuladas para `--demo` y para el GIF |
 
 ### GIF y release

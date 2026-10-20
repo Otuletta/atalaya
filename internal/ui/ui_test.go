@@ -20,6 +20,7 @@ import (
 	"github.com/otuletta/atalaya/internal/ai"
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
+	"github.com/otuletta/atalaya/internal/events"
 	"github.com/otuletta/atalaya/internal/gitparse"
 	"github.com/otuletta/atalaya/internal/store"
 )
@@ -102,9 +103,12 @@ func testStore() *store.Store {
 	})
 	put("health", collector.HealthSnapshot{Checks: []collector.Check{
 		{Project: "odomto", URL: "https://api.odomto.com/health", Status: 200, OK: true, LatencyMS: 142, CheckedAt: now,
+			Stats:   &collector.HealthStats{Uptime24h: 99.95, Uptime7d: 99.9, P95MS: 310},
 			TLS:     &collector.TLSInfo{NotAfter: now.Add(61 * 24 * time.Hour), DaysLeft: 61, Issuer: "R11", Subject: "api.odomto.com"},
 			History: samples(120, 130, 180, 150, 400, 142, 138, -1, 140, 142)},
 		{Project: "cue", URL: "https://cue.dev", OK: false, LatencyMS: 10000, Err: "timeout", CheckedAt: now,
+			Stats: &collector.HealthStats{Uptime24h: 91.3, Uptime7d: 97, Incidents: []collector.Incident{
+				{Start: now.Add(-50 * time.Hour), End: now.Add(-49 * time.Hour)}, {Start: now.Add(-10 * time.Minute)}}},
 			TLS:     &collector.TLSInfo{DaysLeft: 5},
 			History: samples(90, 95, -1, -1)},
 	}})
@@ -118,6 +122,13 @@ func testStore() *store.Store {
 	}})
 	put("ollama", collector.OllamaSnapshot{Available: true, Models: []collector.OllamaModel{
 		{Name: "qwen3:8b", Params: "8.2B", Quant: "Q4_K_M", VRAMBytes: 6_100_000_000, ExpiresAt: now.Add(4 * time.Minute)},
+	}})
+	put("events", events.Snapshot{Events: []events.Event{
+		{At: now.Add(-2 * time.Minute), Kind: "ci_broken", Severity: events.Bad, Project: "odomto", Title: "CI roto en odomto",
+			Body: "main · CI", URL: "https://github.com/otuletta/odomto/actions/runs/9"},
+		{At: now.Add(-30 * time.Minute), Kind: "review_requested", Severity: events.Ask, Project: "odomto",
+			Title: "Te piden review en otuletta/odomto", Body: "#41 Revisa el parser · grace", URL: "https://github.com/otuletta/odomto/pull/41"},
+		{At: now.Add(-26 * time.Hour), Kind: "pr_opened", Severity: events.Info, Project: "kdx", Title: "Nuevo PR #7 en kdx", Body: "Login · grace"},
 	}})
 	put("agents", collector.AgentsSnapshot{Agents: []collector.Agent{
 		{PID: 777, Name: "claude", Project: "odomto", Cwd: "/w/odomto", Branch: "feat/sparkline", CPU: 31,
@@ -273,7 +284,7 @@ func eachSize(t *testing.T, fn func(t *testing.T, w, h int)) {
 
 func TestPanelsGolden(t *testing.T) {
 	eachSize(t, func(t *testing.T, w, ht int) {
-		for i, name := range []string{"resumen", "repos", "github", "produccion", "local", "agentes"} {
+		for i, name := range []string{"resumen", "repos", "github", "produccion", "local", "agentes", "actividad"} {
 			t.Run(name, func(t *testing.T) {
 				h := startSized(t, w, ht)
 				h.keys(string(rune('0' + i)))
@@ -593,6 +604,26 @@ func TestOverview(t *testing.T) {
 	m.moveCard(100)
 	if m.overviewSel != len(m.cards())-1 {
 		t.Errorf("selection not clamped: %d", m.overviewSel)
+	}
+}
+
+func TestActivity(t *testing.T) {
+	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
+	m.width, m.height = 120, 30
+	if m.unseen() != 0 {
+		t.Error("events from before this run count as unseen")
+	}
+	m.seenUntil = now.Add(-time.Hour)
+	if n := m.unseen(); n != 2 { // the broken CI and the review, not the plain PR
+		t.Errorf("unseen = %d, want 2", n)
+	}
+	if b := ansi.Strip(m.badge(PanelActivity)); b != "●2" {
+		t.Errorf("badge = %q", b)
+	}
+	// Opening the panel marks everything as seen.
+	next, _ := m.Update(tea.KeyPressMsg{Code: '6', Text: "6"})
+	if n := next.(Model).unseen(); n != 0 {
+		t.Errorf("unseen after opening the panel = %d", n)
 	}
 }
 

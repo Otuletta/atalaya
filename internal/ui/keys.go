@@ -15,7 +15,7 @@ func newKeyMap() keyMap {
 	return keyMap{
 		Next:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "siguiente panel")),
 		Prev:    key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "panel anterior")),
-		Panel:   key.NewBinding(key.WithKeys("0", "1", "2", "3", "4", "5"), key.WithHelp("0-5", "ir al panel")),
+		Panel:   key.NewBinding(key.WithKeys("0", "1", "2", "3", "4", "5", "6"), key.WithHelp("0-6", "ir al panel")),
 		Up:      key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k/↑", "subir")),
 		Down:    key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/↓", "bajar")),
 		Top:     key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "inicio")),
