@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -122,6 +123,39 @@ func TestDownAtStartupIsNotNews(t *testing.T) {
 	d.Observe(state(map[string]collector.Snapshot{"health": health(false, false, false)}))
 	if got := rec.take(); got != nil {
 		t.Errorf("sent %q for an endpoint that was already down", got)
+	}
+}
+
+func agents(states ...string) collector.AgentsSnapshot {
+	var as []collector.Agent
+	for i, s := range states {
+		as = append(as, collector.Agent{PID: int32(100 + i), Name: "claude", Project: "cue",
+			Session: &collector.Session{ID: fmt.Sprint("s", i), State: s, Title: "Proyecto CUE", Activity: "Bash: tests"}})
+	}
+	return collector.AgentsSnapshot{Agents: as}
+}
+
+func TestAgentTransitions(t *testing.T) {
+	rec := &recorder{}
+	d := &Detector{Notifier: rec, Rules: Rules{Agents: true}}
+	w, wait, block := collector.SessionWorking, collector.SessionWaiting, collector.SessionBlocked
+	steps := []struct {
+		states []string
+		want   []string
+	}{
+		{[]string{wait, w}, nil}, // baseline: already waiting at startup is not news
+		{[]string{wait, wait}, []string{"◉ claude te espera en cue | Proyecto CUE"}},
+		{[]string{wait, wait}, nil},
+		{[]string{w, w}, nil},
+		{[]string{w, block}, []string{"⏸ claude puede necesitar permiso en cue | Bash: tests · Proyecto CUE"}},
+		{[]string{block, block}, []string{"⏸ claude puede necesitar permiso en cue | Bash: tests · Proyecto CUE"}},
+		{[]string{wait, block}, nil}, // blocked → waiting: it never went back to work
+	}
+	for i, s := range steps {
+		d.Observe(state(map[string]collector.Snapshot{"agents": agents(s.states...)}))
+		if got := rec.take(); !slices.Equal(got, s.want) {
+			t.Errorf("step %d %v: sent %q, want %q", i, s.states, got, s.want)
+		}
 	}
 }
 

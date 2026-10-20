@@ -305,15 +305,47 @@ func (m Model) agentsCard() card {
 		c.lines = []string{sDim.Render("ningún agente corriendo")}
 		return c
 	}
-	c.lines = append(c.lines, plural(len(snap.Agents), "sesión", "sesiones"))
-	for _, a := range snap.Agents {
+	head := plural(len(snap.Agents), "sesión", "sesiones")
+	if waiting, blocked := agentAttention(snap); waiting+blocked > 0 {
+		head += sYellow.Render(fmt.Sprintf(" · %d te esperan", waiting+blocked))
+	}
+	c.lines = append(c.lines, head)
+	// Agents that need you first, then the ones working.
+	agents := slices.Clone(snap.Agents)
+	slices.SortStableFunc(agents, func(a, b collector.Agent) int { return cmp.Compare(agentRank(b), agentRank(a)) })
+	for _, a := range agents {
 		where := sDim.Render("—")
 		if a.Project != "" {
 			where = sCyan.Render(a.Project)
 		}
-		c.lines = append(c.lines, fmt.Sprintf("%s %s %s", sBold.Render(a.Name), where, sDim.Render(dur(m.now.Sub(a.Started)))))
+		c.lines = append(c.lines, fmt.Sprintf("%s %s %s", sessionState(a.Session), where, sDim.Render(m.activityText(a))))
 	}
 	return c
+}
+
+func agentRank(a collector.Agent) int {
+	if a.Session == nil {
+		return 0
+	}
+	switch a.Session.State {
+	case collector.SessionBlocked:
+		return 3
+	case collector.SessionWaiting:
+		return 2
+	}
+	return 1
+}
+
+// activityText is activityCell without styles, for the card: without a
+// transcript (Cline) it is how long the process has run.
+func (m Model) activityText(a collector.Agent) string {
+	if a.Session == nil {
+		return dur(m.now.Sub(a.Started))
+	}
+	if a.Session.State == collector.SessionWaiting {
+		return a.Session.Title
+	}
+	return a.Session.Activity
 }
 
 // ---- helpers shared with the panels ----
@@ -336,7 +368,10 @@ func hostOnly(raw string) string {
 }
 
 // windowTitle puts the state in the terminal tab: visible even when the
-// window is in the background.
+// window is in the background. It sticks to characters whose UTF-8 bytes
+// are all outside the C1 range: ✗ (E2 9C 97) carries 0x9C, the 8-bit
+// string terminator, and an OSC parser that is not UTF-8-aware ends the
+// title there and prints the rest on screen.
 func (m Model) windowTitle() string {
 	var parts []string
 	if s, ok := store.Data[collector.GitHubSnapshot](m.state, "github"); ok {
@@ -347,7 +382,7 @@ func (m Model) windowTitle() string {
 			}
 		}
 		if n > 0 {
-			parts = append(parts, fmt.Sprintf("✗%d CI", n))
+			parts = append(parts, plural(n, "CI roto", "CI rotos"))
 		}
 	}
 	if s, ok := store.Data[collector.HealthSnapshot](m.state, "health"); ok {
@@ -358,13 +393,18 @@ func (m Model) windowTitle() string {
 			}
 		}
 		if n > 0 {
-			parts = append(parts, fmt.Sprintf("✗%d prod", n))
+			parts = append(parts, plural(n, "caído", "caídos"))
+		}
+	}
+	if s, ok := store.Data[collector.AgentsSnapshot](m.state, "agents"); ok {
+		if waiting, blocked := agentAttention(s); waiting+blocked > 0 {
+			parts = append(parts, plural(waiting+blocked, "te espera", "te esperan"))
 		}
 	}
 	if len(parts) == 0 {
-		return "atalaya ✓"
+		return "atalaya · todo bien"
 	}
-	return "atalaya " + strings.Join(parts, " · ")
+	return "atalaya · " + strings.Join(parts, " · ")
 }
 
 // loadProgress is the share of sources that have reported at least once,

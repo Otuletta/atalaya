@@ -143,6 +143,9 @@ func TestNotify(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%q: %v", in, err)
 		}
+		if cfg.Notify.WantAgents() != (want.ci || want.health) {
+			t.Errorf("%q: agents=%v", in, cfg.Notify.WantAgents())
+		}
 		if cfg.Notify.WantCI() != want.ci || cfg.Notify.WantHealth() != want.health {
 			t.Errorf("%q: ci=%v health=%v, want %+v", in, cfg.Notify.WantCI(), cfg.Notify.WantHealth(), want)
 		}

@@ -43,7 +43,7 @@ func Collectors(start time.Time) []collector.Collector {
 		&fake{name: "ports", every: 3 * time.Second, fn: func(time.Duration) collector.Snapshot { return ports(start) }},
 		&fake{name: "docker", every: 10 * time.Second, fn: func(time.Duration) collector.Snapshot { return docker() }},
 		&fake{name: "ollama", every: 10 * time.Second, fn: func(time.Duration) collector.Snapshot { return ollama(start) }},
-		&fake{name: "agents", every: 5 * time.Second, fn: func(time.Duration) collector.Snapshot { return agents(start) }},
+		&fake{name: "agents", every: 2 * time.Second, fn: func(el time.Duration) collector.Snapshot { return agents(start, el) }},
 	}
 }
 
@@ -69,7 +69,8 @@ func git(start time.Time) collector.Snapshot {
 		{Project: "odomto", Path: "/demo/odomto", Branch: "main", Upstream: "origin/main", Behind: 3,
 			LastCommit: &collector.Commit{Hash: "9f1c2ab", Author: "Ada", Subject: "fix: reintentos con backoff", When: start.Add(-2 * time.Hour)}},
 		{Project: "kdx", Path: "/demo/kdx", Branch: "feat/sparkline", Upstream: "origin/feat/sparkline", Ahead: 2,
-			Changes: gitparse.Counts{Staged: 2, Unstaged: 3, Untracked: 1}, Stash: 1,
+			Worktrees: []collector.Worktree{{Path: "/demo/kdx/.claude/worktrees/passkeys", Branch: "feat/passkeys"}},
+			Changes:   gitparse.Counts{Staged: 2, Unstaged: 3, Untracked: 1}, Stash: 1,
 			Files: []collector.FileChange{{XY: "M.", Path: "internal/ui/spark.go"}, {XY: "A.", Path: "internal/ui/spark_test.go"},
 				{XY: ".M", Path: "README.md"}, {XY: ".M", Path: "go.mod"}, {XY: ".M", Path: "go.sum"}, {XY: "??", Path: "notes.txt"}},
 			LastCommit: &collector.Commit{Hash: "41de07b", Author: "otuletta", Subject: "feat: sparkline en el panel de health", When: start.Add(-25 * time.Minute)}},
@@ -220,10 +221,26 @@ func ollama(start time.Time) collector.Snapshot {
 	}}
 }
 
-func agents(start time.Time) collector.Snapshot {
+// agents: one working, one that finishes its turn a few seconds into the
+// demo (and notifies), one stuck in a worktree and Cline without a
+// transcript.
+func agents(start time.Time, el time.Duration) collector.Snapshot {
+	kdx := &collector.Session{ID: "d1", Title: "Sparkline en health", State: collector.SessionWorking,
+		Activity: "Bash: go test ./internal/ui", LastAt: start}
+	if el > 8*time.Second {
+		kdx = &collector.Session{ID: "d1", Title: "Sparkline en health", State: collector.SessionWaiting, LastAt: start.Add(8 * time.Second)}
+	}
 	return collector.AgentsSnapshot{Agents: []collector.Agent{
-		{PID: 51200, Name: "claude", Project: "kdx", Cwd: "/demo/kdx", Started: start.Add(-(47 * time.Minute)), Cmdline: "claude"},
-		{PID: 51388, Name: "claude", Project: "odomto", Cwd: "/demo/odomto", Started: start.Add(-(2*time.Hour + 5*time.Minute)), Cmdline: "claude --resume"},
+		{PID: 51200, Name: "claude", Project: "kdx", Cwd: "/demo/kdx", Branch: "feat/sparkline", CPU: 38,
+			Started: start.Add(-(47 * time.Minute)), Cmdline: "claude", Session: kdx},
+		{PID: 51388, Name: "claude", Project: "odomto", Cwd: "/demo/odomto", Branch: "main", CPU: 12,
+			Started: start.Add(-(2*time.Hour + 5*time.Minute)), Cmdline: "claude --resume",
+			Session: &collector.Session{ID: "d2", Title: "Reintentos con backoff", State: collector.SessionWorking,
+				Activity: "editando health.go", LastAt: start}},
+		{PID: 51420, Name: "claude", Project: "kdx", Cwd: "/demo/kdx/.claude/worktrees/passkeys", Branch: "feat/passkeys", Worktree: "passkeys",
+			Started: start.Add(-12 * time.Minute), Cmdline: "claude",
+			Session: &collector.Session{ID: "d3", Title: "Login con passkeys", State: collector.SessionBlocked,
+				Activity: "Bash: npm install @simplewebauthn/server", LastAt: start.Add(-2 * time.Minute)}},
 		{PID: 52011, Name: "cline", Project: "landing", Cwd: "/demo/landing", Started: start.Add(-8 * time.Minute), Cmdline: "cline"},
 	}}
 }

@@ -103,6 +103,7 @@ func (m Model) reposPanel() panelView {
 		{title: "SYNC", max: 10},
 		{title: "CAMBIOS", max: 16},
 		{title: "STASH", hideEmpty: true},
+		{title: "⎇", hideEmpty: true, drop: 3},
 		{title: "HACE", right: true},
 		{title: "AUTOR", max: 16, drop: 1}, // first to go on a narrow terminal
 		{title: "ÚLTIMO COMMIT", flex: true, min: 24},
@@ -136,7 +137,7 @@ func (m Model) repoCells(r collector.Repo) []string {
 	name := r.Project
 	switch {
 	case r.Err != "":
-		return []string{sRed.Render(name), "", "", "", "", "", "", sRed.Render(r.Err)}
+		return []string{sRed.Render(name), "", "", "", "", "", "", "", sRed.Render(r.Err)}
 	case r.OutOfSync():
 		name = sRed.Render(name)
 	case r.Dirty():
@@ -150,7 +151,11 @@ func (m Model) repoCells(r collector.Repo) []string {
 	if c := r.LastCommit; c != nil {
 		when, author, subject = sDim.Render(ago(m.now, c.When)), sDim.Render(c.Author), c.Subject
 	}
-	return []string{name, branch, syncCell(r), changesCell(r), stashCell(r.Stash), when, author, subject}
+	worktrees := ""
+	if n := len(r.Worktrees); n > 0 {
+		worktrees = sMagenta.Render(fmt.Sprint(n))
+	}
+	return []string{name, branch, syncCell(r), changesCell(r), stashCell(r.Stash), worktrees, when, author, subject}
 }
 
 func syncCell(r collector.Repo) string {
@@ -658,8 +663,10 @@ func (m Model) agentsPanel() panelView {
 	t := table{cols: []column{
 		{title: "AGENTE", max: 12},
 		{title: "PROYECTO", max: 16, min: 8},
-		{title: "DIRECTORIO", flex: true, min: 12},
-		{title: "PID", right: true, drop: 1},
+		{title: "RAMA", max: 24, min: 8, hideEmpty: true, drop: 2},
+		{title: "ESTADO"},
+		{title: "ACTIVIDAD", flex: true, min: 16},
+		{title: "CPU", right: true, drop: 1},
 		{title: "DESDE", right: true},
 	}}
 	var pv panelView
@@ -674,15 +681,19 @@ func (m Model) agentsPanel() panelView {
 	}
 	var agents []collector.Agent
 	for _, a := range snap.Agents {
-		if !m.match(a.Project, a.Name, a.Cwd) {
+		title := ""
+		if a.Session != nil {
+			title = a.Session.Title
+		}
+		if !m.match(a.Project, a.Name, a.Cwd, a.Branch, a.Worktree, title) {
 			continue
 		}
 		project := sDim.Render("—")
 		if a.Project != "" {
 			project = sCyan.Render(a.Project)
 		}
-		t.add(sBold.Render(a.Name), project, sDim.Render(config.ContractHome(a.Cwd)),
-			sDim.Render(fmt.Sprint(a.PID)), dur(m.now.Sub(a.Started)))
+		t.add(sBold.Render(a.Name), project, placeCell(a), sessionState(a.Session), activityCell(a),
+			sDim.Render(fmt.Sprintf("%.0f%%", a.CPU)), dur(m.now.Sub(a.Started)))
 		agents = append(agents, a)
 	}
 	ws := t.layout(m.contentWidth())
@@ -691,6 +702,51 @@ func (m Model) agentsPanel() panelView {
 		pv.rows = append(pv.rows, row{key: fmt.Sprintf("agent:%d", agents[i].PID), selectable: true, item: agents[i], line: l})
 	}
 	return pv
+}
+
+// placeCell is the branch, or "⎇ name" when the agent works in a linked
+// worktree.
+func placeCell(a collector.Agent) string {
+	if a.Worktree != "" {
+		return sMagenta.Render("⎇ " + a.Worktree)
+	}
+	return a.Branch
+}
+
+// sessionState is the icon and word for what an agent is doing.
+func sessionState(s *collector.Session) string {
+	if s == nil {
+		return sDim.Render("—")
+	}
+	switch s.State {
+	case collector.SessionWaiting:
+		return sYellow.Render("◉ te espera")
+	case collector.SessionBlocked:
+		return sRed.Render("⏸ ¿permiso?")
+	}
+	return sGreen.Render("⟳ trabajando")
+}
+
+// activityCell says what a working agent is doing, or the session's title
+// when it is waiting.
+func activityCell(a collector.Agent) string {
+	s := a.Session
+	switch {
+	case s == nil:
+		return sDim.Render(config.ContractHome(a.Cwd))
+	case s.State == collector.SessionWaiting:
+		return sDim.Render(cmpOr(s.Title, "turno terminado"))
+	case s.Title != "":
+		return s.Activity + sDim.Render(" · "+s.Title)
+	}
+	return s.Activity
+}
+
+func cmpOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // ---- tab badges ----
@@ -734,10 +790,27 @@ func (m Model) badge(p Panel) string {
 		}
 	case PanelAgents:
 		if s, ok := store.Data[collector.AgentsSnapshot](m.state, "agents"); ok {
-			return count("●", len(s.Agents), sCyan)
+			waiting, blocked := agentAttention(s)
+			return badges(count("●", len(s.Agents), sCyan), count("◉", waiting, sYellow), count("⏸", blocked, sRed))
 		}
 	}
 	return ""
+}
+
+// agentAttention counts agents waiting for you and agents that look stuck.
+func agentAttention(s collector.AgentsSnapshot) (waiting, blocked int) {
+	for _, a := range s.Agents {
+		if a.Session == nil {
+			continue
+		}
+		switch a.Session.State {
+		case collector.SessionWaiting:
+			waiting++
+		case collector.SessionBlocked:
+			blocked++
+		}
+	}
+	return waiting, blocked
 }
 
 func badges(parts ...string) string {

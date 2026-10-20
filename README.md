@@ -15,11 +15,11 @@ Sustituye el ritual de abrir GitHub, revisar el CI, comprobar que producción re
 | **2 GitHub** | Último run de CI por repo (✓ ✗ ⟳ con duración), el CI y el PR de **la rama en la que estás trabajando**, PRs abiertos con el estado de sus checks, PRs donde te piden review (◉) y checks fallidos. Los PRs de bots (dependabot, renovate…) se agrupan en una fila por bot. |
 | **3 Producción** | Health checks HTTP: código, latencia, sparkline de los últimos minutos y **días restantes del certificado TLS**. |
 | **4 Local** | Puertos en escucha mapeados a proceso y proyecto (`:3000 → node · odomto`), contenedores Docker y modelos cargados en Ollama. |
-| **5 Agentes** | Sesiones de Claude Code o Cline corriendo: en qué repo y desde hace cuánto. |
+| **5 Agentes** | Sesiones de Claude Code o Cline: repo, rama o worktree (⎇), CPU y, leyendo la transcripción de Claude Code, **qué está haciendo** («editando model.go», «Bash: go test») o si **te espera** (◉) o parece atascada en un permiso (⏸). Los worktrees de cada repo se ven en su detalle. |
 
 **Detalles de terminal moderna.** Los números de PR, los runs de CI, los endpoints y los puertos son enlaces clicables (OSC 8, cmd+clic en iTerm2, Ghostty, WezTerm…). La pestaña de la terminal muestra el estado (`atalaya ✗2 CI · ✗1 prod`) aunque esté en segundo plano, y mientras carga o refresca aparece la barra de progreso nativa de la terminal.
 
-**Notificaciones.** Con Atalaya abierto aunque esté en segundo plano, recibes una notificación del sistema cuando un CI se rompe o se arregla (en la rama por defecto o en la tuya) y cuando un endpoint se cae o se recupera. Solo se avisan los *cambios*: nada al arrancar por lo que ya estaba roto, nada repetido, y un endpoint no cuenta como caído hasta fallar dos veces seguidas.
+**Notificaciones.** Con Atalaya abierto aunque esté en segundo plano, recibes una notificación del sistema cuando un CI se rompe o se arregla (en la rama por defecto o en la tuya) cuando un endpoint se cae o se recupera, y cuando un agente termina su turno y te espera. Solo se avisan los *cambios*: nada al arrancar por lo que ya estaba roto, nada repetido, y un endpoint no cuenta como caído hasta fallar dos veces seguidas.
 
 ## Instalación
 
@@ -104,6 +104,7 @@ bot_authors = ["dependabot", "renovate", "github-actions"]  # sus PRs van en una
 enabled = true
 ci = true                              # un CI se rompe o se arregla
 health = true                          # un endpoint se cae o se recupera
+agents = true                          # un agente termina su turno o se atasca en un permiso
 
 [ports]
 ignore = ["rapportd", "ControlCenter"] # procesos a ocultar (por defecto, demonios de macOS)
@@ -149,6 +150,7 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 - **El fetch es una fuente aparte.** Así adelante/atrás refleja el remoto y no solo tu último `git fetch`, sin frenar el sondeo de 5 s.
 - **GitHub en una sola query GraphQL**, con un alias por repo (`r0: repository(…)`, `r1: …`) y otro por rama local (`b0: repository(…){ ref(qualifiedName: "refs/heads/…") }`), construida en tiempo de ejecución con `reflect.StructOf`, porque `githubv4` deriva la query de un tipo y el nombre de la rama va en el tag. Cuesta 1 punto de rate limit por minuto. GraphQL no admite peticiones condicionales (ETag), así que el presupuesto se protege leyendo el campo `rateLimit` de la propia respuesta y las cabeceras `Retry-After` y `X-RateLimit-Reset`: el scheduler espera hasta el reset en lugar de insistir.
 - **Las notificaciones son un lector más del store** (`internal/notify`): se suscriben como la UI, comparan cada estado con el anterior y solo avisan de transiciones. En macOS el texto viaja a `osascript` como argumento, nunca dentro del código AppleScript, así que unas comillas en el título de un PR no pueden romperlo.
+- **Agentes por su transcripción.** Claude Code guarda cada sesión en `~/.claude/projects/<carpeta>/<id>.jsonl`. Atalaya empareja cada proceso con la suya (por `--resume=<id>` o la más reciente de su carpeta), lee solo los últimos 512 KB, cachea por tamaño y fecha, y deduce el estado del último mensaje: turno terminado → te espera; herramienta pendiente sin actividad ni CPU durante 30 s → probablemente un permiso. El formato es interno de Claude Code, así que todo vive en `collector/sessions.go` y, si cambia, el panel simplemente no muestra sesión.
 - **Menos sondeo sin foco.** La TUI pide a la terminal los eventos de foco. Mientras está en segundo plano, git, puertos, agentes, Docker y Ollama se consultan 5 veces menos; GitHub y health mantienen el ritmo porque alimentan las notificaciones. Al volver, todo se refresca al instante.
 - **CI honesto.** Se toma el último run de *cada* workflow y se muestra el más grave, así un "Dependabot Updates" verde no tapa un CI roto. Los runs programados antiguos sobre el mismo commit se ignoran.
 

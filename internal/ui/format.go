@@ -27,6 +27,7 @@ var (
 	sYellow  = lipgloss.NewStyle().Foreground(cYellow)
 	sBlue    = lipgloss.NewStyle().Foreground(cBlue)
 	sCyan    = lipgloss.NewStyle().Foreground(cCyan)
+	sMagenta = lipgloss.NewStyle().Foreground(cMagenta)
 	sDim     = lipgloss.NewStyle().Foreground(cDim)
 	sBold    = lipgloss.NewStyle().Bold(true)
 	sBrand   = lipgloss.NewStyle().Bold(true).Foreground(cCyan)

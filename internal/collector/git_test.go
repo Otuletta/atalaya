@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +113,29 @@ func TestGitAndFetch(t *testing.T) {
 	snap, _ = (&Git{Projects: projects[:1]}).Collect(ctx)
 	if app := snap.(GitSnapshot).Repos[0]; app.Ahead != 1 || app.Behind != 1 {
 		t.Errorf("after fetch ahead/behind = %d/%d, want 1/1", app.Ahead, app.Behind)
+	}
+}
+
+func TestWorktrees(t *testing.T) {
+	clone := newClone(t)
+	wt := filepath.Join(filepath.Dir(clone), "clone-feature")
+	git(t, clone, "worktree", "add", "-q", "-b", "feature", wt)
+	git(t, clone, "worktree", "add", "-q", "--detach", wt+"-detached")
+	snap, err := (&Git{Projects: []config.Project{{Name: "app", Path: clone}}}).Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := snap.(GitSnapshot).Repos[0]
+	if len(r.Worktrees) != 2 || r.Worktrees[0].Branch != "feature" || r.Worktrees[1].Branch != "" ||
+		!strings.HasSuffix(r.Worktrees[0].Path, "clone-feature") {
+		t.Errorf("worktrees = %+v", r.Worktrees)
+	}
+	branch, worktree := gitPlace(context.Background(), wt)
+	if branch != "feature" || worktree != "clone-feature" {
+		t.Errorf("gitPlace(worktree) = %q, %q", branch, worktree)
+	}
+	if branch, worktree := gitPlace(context.Background(), clone); branch != "main" || worktree != "" {
+		t.Errorf("gitPlace(main checkout) = %q, %q", branch, worktree)
 	}
 }
 

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -65,6 +66,16 @@ func (m Model) detail(item any) string {
 			}
 		}
 		d.kv("stash", it.Stash)
+		if len(it.Worktrees) > 0 {
+			d.title(fmt.Sprintf("Worktrees (%d)", len(it.Worktrees)))
+			for _, w := range it.Worktrees {
+				line := sMagenta.Render("⎇ "+filepath.Base(w.Path)) + "  " + cmpOr(w.Branch, sDim.Render("detached")) + "  " + sDim.Render(config.ContractHome(w.Path))
+				if a := m.agentIn(w.Path); a != nil {
+					line += "  " + sessionState(a.Session)
+				}
+				d.line(line)
+			}
+		}
 		if it.Err != "" {
 			d.kv("error", sRed.Render(it.Err))
 		}
@@ -211,8 +222,22 @@ func (m Model) detail(item any) string {
 	case collector.Agent:
 		d.title(fmt.Sprintf("%s · pid %d", it.Name, it.PID))
 		d.kv("proyecto", it.Project)
+		d.kv("rama", it.Branch)
+		d.kv("worktree", it.Worktree)
 		d.kv("directorio", config.ContractHome(it.Cwd))
 		d.kv("desde", stamp(m.now, it.Started))
+		d.kv("CPU", fmt.Sprintf("%.0f%%", it.CPU))
+		if s := it.Session; s != nil {
+			d.title("Sesión")
+			d.kv("título", s.Title)
+			d.kv("estado", sessionState(s))
+			d.kv("actividad", s.Activity)
+			d.kv("último paso", stamp(m.now, s.LastAt))
+			if s.PRNumber > 0 {
+				d.kv("PR", fmt.Sprintf("#%d  %s", s.PRNumber, sDim.Render(s.PRURL)))
+			}
+			d.kv("id", s.ID)
+		}
 		d.kv("comando", it.Cmdline)
 		d.title("Acciones")
 		d.line("o  abrir el directorio en el editor")
@@ -256,6 +281,20 @@ func (d *detailBuilder) failedChecks(checks []collector.FailedCheck) {
 	for _, c := range checks {
 		d.line(sRed.Render("✗ "+c.Name) + "  " + sDim.Render(c.URL))
 	}
+}
+
+// agentIn is the agent working inside dir, if any.
+func (m Model) agentIn(dir string) *collector.Agent {
+	snap, ok := store.Data[collector.AgentsSnapshot](m.state, "agents")
+	if !ok {
+		return nil
+	}
+	for i, a := range snap.Agents {
+		if a.Cwd == dir || strings.HasPrefix(a.Cwd, dir+string(filepath.Separator)) {
+			return &snap.Agents[i]
+		}
+	}
+	return nil
 }
 
 // xyStyle colors a porcelain XY code: staged in green, unstaged in yellow.

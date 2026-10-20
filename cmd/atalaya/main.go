@@ -178,7 +178,7 @@ func dashboard(ctx context.Context, path string, demoMode bool) error {
 	defer cancel()
 	go sched.Run(ctx)
 
-	if rules := (notify.Rules{CI: cfg.Notify.WantCI(), Health: cfg.Notify.WantHealth()}); rules.CI || rules.Health {
+	if rules := (notify.Rules{CI: cfg.Notify.WantCI(), Health: cfg.Notify.WantHealth(), Agents: cfg.Notify.WantAgents()}); rules.CI || rules.Health || rules.Agents {
 		go (&notify.Detector{Notifier: notify.System(), Rules: rules}).Watch(ctx, st)
 	}
 

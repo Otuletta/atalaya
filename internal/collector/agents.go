@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
@@ -14,12 +15,19 @@ import (
 
 // Agent is a running coding-agent session.
 type Agent struct {
-	PID     int32     `json:"pid"`
-	Name    string    `json:"name"`
-	Project string    `json:"project,omitempty"`
-	Cwd     string    `json:"cwd,omitempty"`
-	Started time.Time `json:"started"`
-	Cmdline string    `json:"cmdline,omitempty"`
+	PID     int32  `json:"pid"`
+	Name    string `json:"name"`
+	Project string `json:"project,omitempty"`
+	Cwd     string `json:"cwd,omitempty"`
+	// Branch checked out in Cwd, and the worktree's name when Cwd is a
+	// linked worktree (agents often work in one each).
+	Branch   string    `json:"branch,omitempty"`
+	Worktree string    `json:"worktree,omitempty"`
+	Started  time.Time `json:"started"`
+	// CPU is the process's CPU use since the previous collection, in %.
+	CPU     float64  `json:"cpu"`
+	Session *Session `json:"session,omitempty"`
+	Cmdline string   `json:"cmdline,omitempty"`
 }
 
 // AgentsSnapshot is the result of the agents collector.
@@ -39,12 +47,48 @@ type Agents struct {
 	Projects []config.Project
 	Patterns []string
 	Every    time.Duration
+	// ClaudeDir overrides ~/.claude, where Claude Code keeps transcripts.
+	ClaudeDir string
+	Now       func() time.Time
 
-	matcher *projectMatcher
+	matcher  *projectMatcher
+	sessions sessionReader
+	cpu      map[int32]cpuSample
+}
+
+// cpuSample is a process's total CPU time at a moment, to compute its use
+// between two collections.
+type cpuSample struct {
+	total float64 // seconds
+	at    time.Time
 }
 
 func (a *Agents) Name() string            { return "agents" }
 func (a *Agents) Interval() time.Duration { return a.Every }
+
+// gitPlace is the branch checked out in dir and, when dir is a linked
+// worktree, the worktree's name. Both are empty outside a repository.
+func gitPlace(ctx context.Context, dir string) (branch, worktree string) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := run(ctx, gitEnv, "git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD",
+		"--show-toplevel", "--absolute-git-dir", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", ""
+	}
+	f := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(f) != 4 {
+		return "", ""
+	}
+	branch = f[0]
+	if branch == "HEAD" {
+		branch = "" // detached
+	}
+	if f[2] != f[3] { // a linked worktree has its own git dir
+		worktree = filepath.Base(f[1])
+	}
+	return branch, worktree
+}
 
 // MatchAgent returns the matched executable name, or "".
 func MatchAgent(patterns []string, name string, argv []string) string {
@@ -100,19 +144,65 @@ func (a *Agents) Collect(ctx context.Context) (Snapshot, error) {
 		ppid, _ := p.PpidWithContext(ctx)
 		hits[p.Pid] = hit{p, matched, ppid}
 	}
-	var agents []Agent
-	for pid, h := range hits {
-		// Sub-processes of an agent (tool runners, sub-agents) are part of
-		// the parent session, not sessions of their own.
-		if _, parentIsAgent := hits[h.ppid]; parentIsAgent {
-			continue
-		}
-		info := inspect(ctx, h.proc)
-		agents = append(agents, Agent{
-			PID: pid, Name: h.name, Project: a.matcher.match(info.Cwd), Cwd: info.Cwd,
-			Started: info.Started, Cmdline: commandLine(info.Cmdline),
-		})
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
 	}
+	dir := a.ClaudeDir
+	if dir == "" {
+		dir = claudeDir()
+	}
+	cpuNow := map[int32]cpuSample{}
+	// Sub-processes of an agent (tool runners, sub-agents) are part of the
+	// parent session, not sessions of their own.
+	type candidate struct {
+		pid  int32
+		hit  hit
+		info procInfo
+	}
+	var cands []candidate
+	for pid, h := range hits {
+		if _, parentIsAgent := hits[h.ppid]; !parentIsAgent {
+			cands = append(cands, candidate{pid, h, inspect(ctx, h.proc)})
+		}
+	}
+	// Transcripts named by --resume are claimed first; among the others the
+	// newest process gets the newest transcript.
+	sort.Slice(cands, func(i, j int) bool {
+		ri, rj := sessionIDFromArgs(cands[i].info.Cmdline) != "", sessionIDFromArgs(cands[j].info.Cmdline) != ""
+		if ri != rj {
+			return ri
+		}
+		return cands[i].info.Started.After(cands[j].info.Started)
+	})
+	claimed := map[string]bool{}
+	var agents []Agent
+	for _, c := range cands {
+		info := c.info
+		ag := Agent{
+			PID: c.pid, Name: c.hit.name, Project: a.matcher.match(info.Cwd), Cwd: info.Cwd,
+			Started: info.Started, Cmdline: commandLine(info.Cmdline),
+		}
+		if t, err := c.hit.proc.TimesWithContext(ctx); err == nil {
+			sample := cpuSample{total: t.User + t.System, at: now()}
+			if prev, ok := a.cpu[c.pid]; ok && sample.at.After(prev.at) {
+				ag.CPU = (sample.total - prev.total) / sample.at.Sub(prev.at).Seconds() * 100
+			}
+			cpuNow[c.pid] = sample
+		}
+		if info.Cwd != "" {
+			ag.Branch, ag.Worktree = gitPlace(ctx, info.Cwd)
+			if path := findTranscript(transcriptDir(dir, info.Cwd), info.Cmdline, info.Started, claimed); path != "" {
+				claimed[path] = true
+				if p, ok := a.sessions.read(path); ok {
+					s := p.session(now(), ag.CPU)
+					ag.Session = &s
+				}
+			}
+		}
+		agents = append(agents, ag)
+	}
+	a.cpu = cpuNow
 	sort.Slice(agents, func(i, j int) bool {
 		if !agents[i].Started.Equal(agents[j].Started) {
 			return agents[i].Started.Before(agents[j].Started)

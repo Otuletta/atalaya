@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -27,6 +28,13 @@ type FileChange struct {
 	Path string `json:"path"`
 }
 
+// Worktree is a linked worktree of a repo (`git worktree add`), where
+// agents often work in parallel.
+type Worktree struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"` // empty when detached
+}
+
 // Repo is the local state of one project.
 type Repo struct {
 	Project      string          `json:"project"`
@@ -40,6 +48,7 @@ type Repo struct {
 	Changes      gitparse.Counts `json:"changes"`
 	Files        []FileChange    `json:"files,omitempty"`
 	Stash        int             `json:"stash"`
+	Worktrees    []Worktree      `json:"worktrees,omitempty"`
 	LastCommit   *Commit         `json:"last_commit,omitempty"`
 	Err          string          `json:"error,omitempty"`
 }
@@ -125,6 +134,9 @@ func repoStatus(ctx context.Context, p config.Project) Repo {
 	if r.Detached && len(st.OID) >= 7 {
 		r.Branch = st.OID[:7]
 	}
+	if out, err := run(ctx, gitEnv, "git", "-C", p.Path, "worktree", "list", "--porcelain", "-z"); err == nil {
+		r.Worktrees = parseWorktrees(out)
+	}
 	if !st.Initial {
 		c, err := lastCommit(ctx, p.Path)
 		if err != nil {
@@ -133,6 +145,33 @@ func repoStatus(ctx context.Context, p config.Project) Repo {
 		r.LastCommit = c
 	}
 	return r
+}
+
+// parseWorktrees reads `git worktree list --porcelain -z`: attributes end
+// in NUL and an empty one ends each worktree. The first is the main
+// checkout, which is the repo itself and is skipped.
+func parseWorktrees(out []byte) []Worktree {
+	var wts []Worktree
+	var cur *Worktree
+	first := true
+	for _, f := range bytes.Split(out, []byte{0}) {
+		field := string(f)
+		switch {
+		case field == "":
+			if cur != nil && !first {
+				wts = append(wts, *cur)
+			}
+			if cur != nil {
+				first = false
+			}
+			cur = nil
+		case strings.HasPrefix(field, "worktree "):
+			cur = &Worktree{Path: strings.TrimPrefix(field, "worktree ")}
+		case strings.HasPrefix(field, "branch ") && cur != nil:
+			cur.Branch = strings.TrimPrefix(strings.TrimPrefix(field, "branch "), "refs/heads/")
+		}
+	}
+	return wts
 }
 
 func lastCommit(ctx context.Context, dir string) (*Commit, error) {

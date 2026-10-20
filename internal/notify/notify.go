@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/store"
@@ -65,6 +67,7 @@ func (none) Notify(string, string) error { return nil }
 type Rules struct {
 	CI     bool
 	Health bool
+	Agents bool
 }
 
 // Detector turns state changes into notifications. The first state seen of
@@ -76,6 +79,7 @@ type Detector struct {
 
 	ci     map[string]string // repo@branch → last settled state
 	health map[string]bool   // url → down
+	agents map[string]string // pid/session → state
 }
 
 // Watch observes the store until ctx is done.
@@ -95,7 +99,7 @@ func (d *Detector) Watch(ctx context.Context, st *store.Store) {
 // Observe compares a state with the previous one and notifies what changed.
 func (d *Detector) Observe(st store.State) {
 	if d.ci == nil {
-		d.ci, d.health = map[string]string{}, map[string]bool{}
+		d.ci, d.health, d.agents = map[string]string{}, map[string]bool{}, map[string]string{}
 	}
 	if gh, ok := store.Data[collector.GitHubSnapshot](st, "github"); ok && d.Rules.CI {
 		for _, r := range gh.Repos {
@@ -111,6 +115,37 @@ func (d *Detector) Observe(st store.State) {
 		for _, c := range hs.Checks {
 			d.checkHealth(c)
 		}
+	}
+	if as, ok := store.Data[collector.AgentsSnapshot](st, "agents"); ok && d.Rules.Agents {
+		for _, a := range as.Agents {
+			d.checkAgent(a)
+		}
+	}
+}
+
+// checkAgent reports an agent that stops working: it finished its turn and
+// waits for you, or a tool call stalled (likely a permission prompt).
+func (d *Detector) checkAgent(a collector.Agent) {
+	if a.Session == nil {
+		return
+	}
+	key := fmt.Sprintf("%d/%s", a.PID, a.Session.ID)
+	prev, known := d.agents[key]
+	state := a.Session.State
+	d.agents[key] = state
+	if !known || prev == state || prev != collector.SessionWorking {
+		return
+	}
+	where := a.Project
+	if where == "" {
+		where = filepath.Base(a.Cwd)
+	}
+	body := a.Session.Title
+	switch state {
+	case collector.SessionWaiting:
+		d.send("◉ "+a.Name+" te espera en "+where, body)
+	case collector.SessionBlocked:
+		d.send("⏸ "+a.Name+" puede necesitar permiso en "+where, strings.TrimSpace(a.Session.Activity+" · "+body))
 	}
 }
 

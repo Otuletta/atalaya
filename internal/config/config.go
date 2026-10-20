@@ -55,6 +55,9 @@ type Notify struct {
 	CI *bool `toml:"ci"`
 	// Health notifies when an endpoint goes down or recovers.
 	Health *bool `toml:"health"`
+	// Agents notifies when a coding agent finishes its turn and waits for
+	// you, or seems stuck on a permission prompt.
+	Agents *bool `toml:"agents"`
 }
 
 func on(b *bool) bool { return b == nil || *b }
@@ -64,6 +67,9 @@ func (n Notify) WantCI() bool { return on(n.Enabled) && on(n.CI) }
 
 // WantHealth reports whether endpoint transitions are notified.
 func (n Notify) WantHealth() bool { return on(n.Enabled) && on(n.Health) }
+
+// WantAgents reports whether agent transitions are notified.
+func (n Notify) WantAgents() bool { return on(n.Enabled) && on(n.Agents) }
 
 // Intervals overrides how often each collector runs.
 type Intervals struct {

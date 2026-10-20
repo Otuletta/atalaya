@@ -1,9 +1,9 @@
-◆ 0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2 
+◆ 0  1 ●1 ●1 2 ✗1 ◉2 3 ✗1 4  5 Agentes ●3 ◉1                                    
 ────────────────────────────────────────────────────────────────────────────────
-  AGENTE  PROYECTO  DIRECTORIO                                        PID  DESDE
-› claude  odomto    /w/odomto                                         777  2h13m
-  cline   —         /tmp/scratch                                      888  1m30s
-
+  AGENTE  PROYECTO  RAMA            ESTADO        ACTIVIDAD          CPU   DESDE
+› claude  odomto    feat/sparkline  ⟳ trabajando  editando model.g…  31%   2h13m
+  claude  kdx       ⎇ passkeys      ◉ te espera   Login con passke…   0%  40m00s
+  cline   —                         —             /tmp/scratch        0%   1m30s
 
 
 

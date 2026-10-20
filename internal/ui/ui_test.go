@@ -65,6 +65,7 @@ func testStore() *store.Store {
 			LastCommit: &collector.Commit{Hash: "abc1234def", Author: "Ada", Subject: "feat: sparkline de latencia", When: now.Add(-3 * time.Hour)}},
 		{Project: "kdx", Path: "/w/kdx", Branch: "feat/login", Upstream: "origin/feat/login",
 			Changes:    gitparse.Counts{Unstaged: 4},
+			Worktrees:  []collector.Worktree{{Path: "/w/kdx/.claude/worktrees/passkeys", Branch: "feat/passkeys"}},
 			LastCommit: &collector.Commit{Author: "Grace", Subject: "wip: login", When: now.Add(-20 * time.Minute)}},
 		{Project: "cue", Path: "/w/cue", Branch: "main", Upstream: "origin/main",
 			LastCommit: &collector.Commit{Author: "Ada", Subject: "release 1.0", When: now.Add(-50 * time.Hour)}},
@@ -118,7 +119,13 @@ func testStore() *store.Store {
 		{Name: "qwen3:8b", Params: "8.2B", Quant: "Q4_K_M", VRAMBytes: 6_100_000_000, ExpiresAt: now.Add(4 * time.Minute)},
 	}})
 	put("agents", collector.AgentsSnapshot{Agents: []collector.Agent{
-		{PID: 777, Name: "claude", Project: "odomto", Cwd: "/w/odomto", Started: now.Add(-(2*time.Hour + 13*time.Minute))},
+		{PID: 777, Name: "claude", Project: "odomto", Cwd: "/w/odomto", Branch: "feat/sparkline", CPU: 31,
+			Started: now.Add(-(2*time.Hour + 13*time.Minute)),
+			Session: &collector.Session{ID: "s-777", Title: "Sparkline de latencia", State: collector.SessionWorking,
+				Activity: "editando model.go", LastAt: now.Add(-3 * time.Second)}},
+		{PID: 779, Name: "claude", Project: "kdx", Cwd: "/w/kdx/.claude/worktrees/passkeys", Branch: "feat/passkeys", Worktree: "passkeys",
+			Started: now.Add(-40 * time.Minute),
+			Session: &collector.Session{ID: "s-779", Title: "Login con passkeys", State: collector.SessionWaiting, LastAt: now.Add(-6 * time.Minute)}},
 		{PID: 888, Name: "cline", Cwd: "/tmp/scratch", Started: now.Add(-90 * time.Second)},
 	}})
 	return st
@@ -527,8 +534,8 @@ func TestOverview(t *testing.T) {
 		"1 desincronizado · 1 con cambios",            // repos
 		"odomto ✗ CI 3m15s", "◉ #41 Revisa el parser", // github: broken CI and a review waiting
 		"● cue.dev", "timeout", "● api.odomto.com", // health: the down endpoint first
-		":3000 → node · odomto", // local
-		"claude odomto 2h13m",   // agents
+		":3000 → node · odomto",              // local
+		"◉ te espera kdx Login con passkeys", // agents: the one waiting first
 		"fuentes al día",
 	} {
 		if !strings.Contains(s, want) {
@@ -548,8 +555,13 @@ func TestOverview(t *testing.T) {
 func TestWindowTitleAndProgress(t *testing.T) {
 	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
 	v := m.View()
-	if v.WindowTitle != "atalaya ✗1 CI · ✗1 prod" {
+	if v.WindowTitle != "atalaya · 1 CI roto · 1 caído · 1 te espera" {
 		t.Errorf("title = %q", v.WindowTitle)
+	}
+	for _, b := range []byte(v.WindowTitle) {
+		if b >= 0x80 && b <= 0x9f {
+			t.Fatalf("title has the C1 byte %#x, which ends an OSC in 8-bit parsers", b)
+		}
 	}
 	if v.ProgressBar != nil {
 		t.Error("progress bar shown with every source loaded")
@@ -563,7 +575,7 @@ func TestWindowTitleAndProgress(t *testing.T) {
 	if v.ProgressBar == nil || v.ProgressBar.Value != 50 {
 		t.Errorf("progress = %+v, want 50%%", v.ProgressBar)
 	}
-	if v.WindowTitle != "atalaya ✓" {
+	if v.WindowTitle != "atalaya · todo bien" {
 		t.Errorf("title = %q", v.WindowTitle)
 	}
 }
