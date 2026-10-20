@@ -257,6 +257,18 @@ git tag v0.1.0 && git push --tags   # el workflow release ejecuta GoReleaser
 
 El workflow de release publica binarios para macOS y Linux (amd64 y arm64) y actualiza el cask en `otuletta/homebrew-tap`. Necesita el secreto `HOMEBREW_TAP_GITHUB_TOKEN`: un token con permiso de escritura sobre ese repo.
 
+**Firma y notarización de macOS (opcional).** Si el repo tiene estos secretos, GoReleaser firma y notariza los binarios de macOS desde Linux (con [quill](https://github.com/anchore/quill)); si no los tiene, ese paso se salta y el cask quita la cuarentena al instalar:
+
+| Secreto | Qué es |
+|---|---|
+| `MACOS_SIGN_P12` | El certificado «Developer ID Application» exportado como `.p12`, en base64 (`base64 -i cert.p12`) |
+| `MACOS_SIGN_PASSWORD` | La contraseña de ese `.p12` |
+| `MACOS_NOTARY_ISSUER_ID` | App Store Connect → Usuarios y acceso → Integraciones → Issuer ID |
+| `MACOS_NOTARY_KEY_ID` | El Key ID de una clave de la API de App Store Connect |
+| `MACOS_NOTARY_KEY` | Esa clave (`.p8`), en base64 |
+
+`goreleaser release --snapshot --clean` prueba todo en local sin publicar nada.
+
 ## Limitaciones conocidas
 
 - **Primero macOS.** Linux funciona (los tests de CI corren en los dos). Windows queda fuera de alcance.
