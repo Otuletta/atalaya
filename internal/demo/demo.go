@@ -5,12 +5,14 @@ package demo
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
 	"os/exec"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/otuletta/atalaya/internal/ai"
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
 	"github.com/otuletta/atalaya/internal/gitparse"
@@ -102,7 +104,8 @@ func github(start time.Time, el time.Duration) collector.Snapshot {
 		RateLimit: collector.RateLimit{Limit: 5000, Remaining: 4991, Cost: 1},
 		Repos: []collector.GitHubRepo{
 			{Project: "odomto", Repo: "otuletta/odomto", URL: "https://github.com/otuletta/odomto", DefaultBranch: "main",
-				CI:           &collector.CIRun{State: collector.CIFailure, Workflow: "CI", StartedAt: start.Add(-time.Hour), DurationSec: 187},
+				CI: &collector.CIRun{State: collector.CIFailure, Workflow: "CI", StartedAt: start.Add(-time.Hour), DurationSec: 187,
+					URL: "https://github.com/otuletta/odomto/actions/runs/1234"},
 				FailedChecks: []collector.FailedCheck{{Name: "test (macos)"}},
 				OpenPRs:      7,
 				PRs: []collector.PullRequest{
@@ -254,3 +257,17 @@ func (Actions) Start(*exec.Cmd) error                        { return nil }
 func (Actions) OpenURL(string) error                         { return nil }
 func (Actions) Pull(context.Context, string) (string, error) { return "Already up to date.", nil }
 func (Actions) Kill(context.Context, int32, time.Time) error { return nil }
+
+// Diagnose answers like Claude would about the demo's broken CI.
+func (Actions) Diagnose(context.Context, ai.Failure) (string, error) {
+	time.Sleep(1500 * time.Millisecond)
+	return "El job «test (macos)» falla en TestHealthTimeout: el servidor de prueba responde en 120 ms " +
+		"pero el test fija un timeout de 100 ms, y en los runners de macOS el arranque es más lento.\n\n" +
+		"Arreglo: sube el timeout del test a 500 ms o, mejor, inyecta un reloj y no dependas del tiempo real " +
+		"(internal/collector/health_test.go:72).", nil
+}
+
+// Fix never opens Claude Code in the demo.
+func (Actions) Fix(context.Context, ai.Failure) (*exec.Cmd, error) {
+	return nil, errors.New("en la demo no se abre Claude Code; con tus repos, c lo abre aquí mismo")
+}

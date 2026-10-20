@@ -33,7 +33,7 @@ O con Go 1.27+:
 go install github.com/otuletta/atalaya/cmd/atalaya@latest
 ```
 
-Requisitos: `git`. Para el panel de GitHub, la [CLI `gh`](https://cli.github.com) con sesión iniciada (`gh auth login`); Atalaya reutiliza su token y no pide ni guarda credenciales. Docker y Ollama son opcionales: si no están, su sección lo indica.
+Requisitos: `git`. Para `a` y `c`, la [CLI de Claude Code](https://docs.claude.com/claude-code). Para el panel de GitHub, la [CLI `gh`](https://cli.github.com) con sesión iniciada (`gh auth login`); Atalaya reutiliza su token y no pide ni guarda credenciales. Docker y Ollama son opcionales: si no están, su sección lo indica.
 
 ## Primeros pasos
 
@@ -56,6 +56,8 @@ atalaya --demo               # o pruébalo con datos simulados, sin config
 | `o` | Abrir: el repo en tu editor, el PR o el run fallido en el navegador, `localhost:<puerto>` |
 | `p` | `git pull --ff-only` del repo seleccionado (pide confirmación) |
 | `x` | Matar el proceso de un puerto con `SIGTERM` (pide confirmación) |
+| `a` | Sobre un CI roto: **diagnóstico de Claude**. Descarga el log del job fallido, lo recorta a lo que rodea el error y le pide a Claude la causa y el arreglo |
+| `c` | Sobre un CI roto: abre **Claude Code** en el repo con ese log como contexto (pide confirmación). Al salir, vuelves a Atalaya |
 | `r` | Refrescar todas las fuentes ya |
 | `?` | Ayuda |
 | `q` | Salir |
@@ -99,6 +101,9 @@ patterns = ["claude", "cline"]         # globs sobre el nombre del ejecutable; d
 
 [github]
 bot_authors = ["dependabot", "renovate", "github-actions"]  # sus PRs van en una sola fila; las cuentas "…[bot]" siempre cuentan
+
+[ai]                                   # teclas a y c
+command = ["claude"]                   # la CLI de Claude Code (reutiliza su sesión, sin API keys)
 
 [notify]                               # notificaciones del sistema (macOS; notify-send en Linux)
 enabled = true

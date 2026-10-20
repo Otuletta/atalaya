@@ -130,12 +130,18 @@ func (m Model) detail(item any) string {
 		}
 		d.title("Acciones")
 		d.line("o  abrir en el navegador    p  git pull --ff-only del repo local")
+		if _, ok := m.failure(it); ok {
+			d.line("a  diagnóstico de Claude    c  arreglarlo con Claude Code")
+		}
 
 	case branchItem:
 		d.title(it.Repo.Repo)
 		m.branchDetail(&d, it.Branch)
 		d.title("Acciones")
 		d.line("o  abrir el PR (o el run, si falla)    p  git pull --ff-only del repo local")
+		if _, ok := m.failure(it); ok {
+			d.line("a  diagnóstico de Claude    c  arreglarlo con Claude Code")
+		}
 
 	case botGroup:
 		d.title(fmt.Sprintf("%s · %s (%d PRs)", it.Author, it.Repo, len(it.PRs)))

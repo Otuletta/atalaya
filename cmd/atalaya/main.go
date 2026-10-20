@@ -23,6 +23,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/otuletta/atalaya/internal/actions"
+	"github.com/otuletta/atalaya/internal/ai"
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
 	"github.com/otuletta/atalaya/internal/demo"
@@ -164,7 +165,7 @@ func sources(path string, demoMode, withFetch bool) (*config.Config, []collector
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return cfg, collectors(cfg, withFetch), actions.System{EditorSetting: cfg.Editor}, nil
+	return cfg, collectors(cfg, withFetch), actions.System{EditorSetting: cfg.Editor, Assistant: ai.Assistant{Command: cfg.AI.Command}}, nil
 }
 
 func dashboard(ctx context.Context, path string, demoMode bool) error {

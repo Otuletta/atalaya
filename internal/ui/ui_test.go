@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/charmbracelet/x/exp/teatest/v2"
 
+	"github.com/otuletta/atalaya/internal/ai"
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
 	"github.com/otuletta/atalaya/internal/gitparse"
@@ -165,6 +166,16 @@ func (f *fakeActions) Pull(_ context.Context, dir string) (string, error) {
 	}
 	return "Fast-forward", nil
 }
+func (f *fakeActions) Diagnose(_ context.Context, fl ai.Failure) (string, error) {
+	f.record("diagnose " + fl.Project + " " + fl.Branch + " " + fl.RunURL)
+	return "Falla `go vet` por un import sin usar en model.go.", nil
+}
+
+func (f *fakeActions) Fix(_ context.Context, fl ai.Failure) (*exec.Cmd, error) {
+	f.record("fix " + fl.Project + " " + fl.Dir)
+	return exec.Command("true"), nil
+}
+
 func (f *fakeActions) Kill(_ context.Context, pid int32, _ time.Time) error {
 	f.record(fmt.Sprint("kill ", pid))
 	return nil
@@ -472,6 +483,39 @@ func TestBotPRsNotListedOneByOne(t *testing.T) {
 	m.width, m.height, m.panel = 120, 30, PanelGitHub
 	if s := screen(m); strings.Contains(s, "Bump vite") {
 		t.Errorf("bot PRs listed one by one:\n%s", s)
+	}
+}
+
+func TestAnalyzeAndFixCI(t *testing.T) {
+	h := start(t)
+	h.keys("2", "a") // odomto: its default branch CI fails
+	h.waitCalls(t, 1)
+	h.waitFor(t, "Diagnóstico de Claude")
+	h.keys("c") // from the note: c fixes the same CI
+	h.waitFor(t, "¿Abrir Claude Code en odomto para arreglar el CI de main?")
+	h.keys("y")
+	h.waitCalls(t, 2)
+	h.waitFor(t, "Claude Code cerrado")
+	m := h.final(t)
+	want := []string{
+		"diagnose odomto main https://github.com/otuletta/odomto/actions/runs/9",
+		"fix odomto /w/odomto",
+	}
+	if got := h.actions.Calls(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("calls = %q", got)
+	}
+	if !strings.Contains(m.viewport.View(), "import sin usar") {
+		t.Errorf("note = %q", m.viewport.View())
+	}
+}
+
+func TestAnalyzeNeedsABrokenCI(t *testing.T) {
+	h := start(t)
+	h.keys("2", "j", "j", "a") // the branch line runs, it does not fail
+	h.waitFor(t, "a y c funcionan sobre un CI roto")
+	h.final(t)
+	if calls := h.actions.Calls(); len(calls) != 0 {
+		t.Errorf("calls = %v", calls)
 	}
 }
 

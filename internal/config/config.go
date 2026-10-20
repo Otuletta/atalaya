@@ -71,6 +71,12 @@ func (n Notify) WantHealth() bool { return on(n.Enabled) && on(n.Health) }
 // WantAgents reports whether agent transitions are notified.
 func (n Notify) WantAgents() bool { return on(n.Enabled) && on(n.Agents) }
 
+// AI configures the Claude Code integration (keys a and c).
+type AI struct {
+	// Command is the Claude Code CLI and fixed arguments. Default: claude.
+	Command []string `toml:"command"`
+}
+
 // Intervals overrides how often each collector runs.
 type Intervals struct {
 	Git    Duration `toml:"git"`
@@ -96,6 +102,7 @@ type Config struct {
 	Ports      Ports          `toml:"ports"`
 	GitHub     GitHubSettings `toml:"github"`
 	Notify     Notify         `toml:"notify"`
+	AI         AI             `toml:"ai"`
 	Intervals  Intervals      `toml:"intervals"`
 
 	// Path is where the config was loaded from.

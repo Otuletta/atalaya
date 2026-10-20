@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
+
+	"github.com/otuletta/atalaya/internal/ai"
 )
 
 // terminalEditors take over the terminal, so the TUI must be suspended
@@ -130,6 +132,39 @@ func Kill(ctx context.Context, pid int32, started time.Time) error {
 type System struct {
 	// EditorSetting is the `editor` from the config.
 	EditorSetting string
+	// Assistant runs Claude Code for a and c.
+	Assistant ai.Assistant
+}
+
+// failedLog checks the CLI first (no point downloading a log it cannot
+// read) and then fetches the failed steps' log.
+func (s System) failedLog(ctx context.Context, f ai.Failure) (string, error) {
+	if err := s.Assistant.Available(); err != nil {
+		return "", err
+	}
+	run, ok := ai.ParseRunURL(f.RunURL)
+	if !ok {
+		return "", errors.New("solo sé leer logs de GitHub Actions")
+	}
+	return ai.FailedLog(ctx, run)
+}
+
+// Diagnose asks Claude why the CI failed.
+func (s System) Diagnose(ctx context.Context, f ai.Failure) (string, error) {
+	log, err := s.failedLog(ctx, f)
+	if err != nil {
+		return "", err
+	}
+	return s.Assistant.Diagnose(ctx, f, log)
+}
+
+// Fix prepares an interactive Claude Code session to fix the CI.
+func (s System) Fix(ctx context.Context, f ai.Failure) (*exec.Cmd, error) {
+	log, err := s.failedLog(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	return s.Assistant.FixCommand(f, log)
 }
 
 func (s System) Editor(dir string) (*exec.Cmd, bool) { return EditorCommand(s.EditorSetting, dir) }

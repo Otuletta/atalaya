@@ -20,6 +20,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/otuletta/atalaya/internal/ai"
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
 	"github.com/otuletta/atalaya/internal/store"
@@ -32,6 +33,10 @@ type Actions interface {
 	OpenURL(url string) error
 	Pull(ctx context.Context, dir string) (string, error)
 	Kill(ctx context.Context, pid int32, started time.Time) error
+	// Diagnose asks Claude why a CI failed; Fix prepares a Claude Code
+	// session to repair it.
+	Diagnose(ctx context.Context, f ai.Failure) (string, error)
+	Fix(ctx context.Context, f ai.Failure) (*exec.Cmd, error)
 }
 
 // Deps is everything the UI needs from the outside.
@@ -57,6 +62,18 @@ type (
 		refresh []string
 	}
 	clearStatusMsg struct{ id int }
+	// diagnosisMsg carries Claude's explanation of a broken CI.
+	diagnosisMsg struct {
+		failure ai.Failure
+		text    string
+		err     error
+	}
+	// fixReadyMsg carries the Claude Code command, ready to take over the
+	// terminal.
+	fixReadyMsg struct {
+		cmd *exec.Cmd
+		err error
+	}
 )
 
 type confirmation struct {
@@ -87,6 +104,8 @@ type Model struct {
 	viewport   viewport.Model
 	confirm    *confirmation
 	refreshing bool
+	// noteFailure is the CI a diagnosis note is about, so c works there.
+	noteFailure *ai.Failure
 
 	status    string
 	statusErr bool
@@ -167,6 +186,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.id == m.statusID {
 			m.status = ""
 		}
+	case diagnosisMsg:
+		if msg.err != nil {
+			cmd = m.setStatus(msg.err.Error(), true)
+			break
+		}
+		m.status = ""
+		m.noteFailure = &msg.failure
+		m.openNote(m.diagnosisNote(msg.failure, msg.text))
+	case fixReadyMsg:
+		if msg.err != nil {
+			cmd = m.setStatus(msg.err.Error(), true)
+			break
+		}
+		cmd = tea.ExecProcess(msg.cmd, func(err error) tea.Msg {
+			return actionMsg{text: "Claude Code cerrado", err: err, refresh: []string{"git", "github", "agents"}}
+		})
 	case tea.FocusMsg:
 		if m.deps.Focus != nil {
 			m.deps.Focus(true)
@@ -245,6 +280,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m.askPull(m.selectedItem())
 		case key.Matches(msg, k.Kill):
 			return m.askKill(m.selectedItem())
+		case key.Matches(msg, k.Analyze):
+			return m.analyze(m.selectedItem())
+		case key.Matches(msg, k.Fix):
+			return m.askFix(m.selectedItem())
 		default:
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
@@ -297,6 +336,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.askPull(m.selectedItem())
 	case key.Matches(msg, k.Kill):
 		return m.askKill(m.selectedItem())
+	case key.Matches(msg, k.Analyze):
+		return m.analyze(m.selectedItem())
+	case key.Matches(msg, k.Fix):
+		return m.askFix(m.selectedItem())
 	case key.Matches(msg, k.Refresh):
 		m.refreshing = true
 		m.deps.Refresh()
@@ -326,7 +369,7 @@ func (m *Model) overviewKey(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 		m.overviewSel = len(m.cards()) - 1
 	case key.Matches(msg, k.Enter):
 		m.panel = m.cards()[m.overviewSel].panel
-	case key.Matches(msg, k.Open, k.Pull, k.Kill):
+	case key.Matches(msg, k.Open, k.Pull, k.Kill, k.Analyze, k.Fix):
 		return true, m.statusCmd("abre un panel con enter para actuar sobre un elemento")
 	default:
 		return false, nil
@@ -390,6 +433,9 @@ func (m Model) selectedRow() (row, bool) {
 }
 
 func (m Model) selectedItem() any {
+	if m.detailOpen && m.detailKey == "note" && m.noteFailure != nil {
+		return *m.noteFailure
+	}
 	if m.detailOpen {
 		for _, r := range m.build(m.panel).rows {
 			if r.key == m.detailKey {
@@ -588,6 +634,84 @@ func (m Model) askKill(item any) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// failure is the broken CI an item stands for: a repo whose default
+// branch fails, or the line of a local branch that fails.
+func (m Model) failure(item any) (ai.Failure, bool) {
+	switch it := item.(type) {
+	case ai.Failure:
+		return it, true
+	case collector.GitHubRepo:
+		if ci := it.CI; ci != nil && ci.State == collector.CIFailure && ci.URL != "" {
+			return ai.Failure{Project: it.Project, Dir: m.projectPath(it.Project), Branch: it.DefaultBranch,
+				Workflow: ci.Workflow, RunURL: ci.URL}, true
+		}
+	case branchItem:
+		if ci := it.Branch.CI; ci != nil && ci.State == collector.CIFailure && ci.URL != "" {
+			return ai.Failure{Project: it.Repo.Project, Dir: m.projectPath(it.Repo.Project), Branch: it.Branch.Name,
+				Workflow: ci.Workflow, RunURL: ci.URL}, true
+		}
+	}
+	return ai.Failure{}, false
+}
+
+const notCI = "a y c funcionan sobre un CI roto de GitHub Actions (panel 2)"
+
+// analyze asks Claude, in the background, why the CI failed.
+func (m Model) analyze(item any) (Model, tea.Cmd) {
+	f, ok := m.failure(item)
+	if !ok || m.deps.Actions == nil {
+		return m, m.statusCmd(notCI)
+	}
+	a := m.deps.Actions
+	m.status, m.statusErr = "pidiendo a Claude un diagnóstico del CI de "+f.Project+"…", false
+	return m, func() tea.Msg {
+		text, err := a.Diagnose(context.Background(), f)
+		return diagnosisMsg{failure: f, text: text, err: err}
+	}
+}
+
+// askFix confirms before handing the terminal to Claude Code.
+func (m Model) askFix(item any) (Model, tea.Cmd) {
+	f, ok := m.failure(item)
+	if !ok || m.deps.Actions == nil {
+		return m, m.statusCmd(notCI)
+	}
+	if f.Dir == "" {
+		return m, m.statusCmd(f.Project + " no tiene un checkout local donde arreglarlo")
+	}
+	a := m.deps.Actions
+	m.confirm = &confirmation{
+		prompt: fmt.Sprintf("¿Abrir Claude Code en %s para arreglar el CI de %s?", f.Project, f.Branch),
+		run: tea.Sequence(m.statusCmd("descargando el log del CI…"), func() tea.Msg {
+			cmd, err := a.Fix(context.Background(), f)
+			return fixReadyMsg{cmd: cmd, err: err}
+		}),
+	}
+	return m, nil
+}
+
+// openNote shows a text in the detail viewport (esc closes it).
+func (m *Model) openNote(text string) {
+	m.detailOpen, m.detailKey = true, "note"
+	m.resizeViewport()
+	m.viewport.SetContent(text)
+	m.viewport.GotoTop()
+}
+
+func (m Model) diagnosisNote(f ai.Failure, text string) string {
+	var d detailBuilder
+	d.title(fmt.Sprintf("Diagnóstico de Claude · CI de %s en %s", f.Project, f.Branch))
+	d.kv("workflow", f.Workflow)
+	d.kv("run", f.RunURL)
+	d.b.WriteString("\n")
+	for _, l := range strings.Split(ansi.Wordwrap(text, max(m.width-6, 20), ""), "\n") {
+		d.line(l)
+	}
+	d.title("Acciones")
+	d.line("c  abrir Claude Code para arreglarlo    esc  volver")
+	return d.String()
+}
+
 // ---- view ----
 
 func (m Model) View() tea.View {
@@ -761,9 +885,10 @@ func (m Model) helpLine() string {
 	k := m.keys
 	var full, compact []key.Binding
 	if m.detailOpen {
+		// In a detail q closes it, like esc; ctrl+c still quits.
 		full = []key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar"),
-			short(k.Open, "abrir"), short(k.Pull, "pull"), short(k.Kill, "matar"), short(k.Quit, "salir")}
-		compact = []key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar"), actionsBinding, short(k.Quit, "salir")}
+			short(k.Open, "abrir"), short(k.Pull, "pull"), short(k.Kill, "matar"), aiBinding}
+		compact = []key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar"), actionsBinding}
 	} else {
 		full = k.ShortHelp()
 		compact = []key.Binding{short(k.Next, "panel"), short(k.Filter, "filtrar"), short(k.Enter, "detalle"),
@@ -780,6 +905,9 @@ func (m Model) helpLine() string {
 	}
 	return m.help.ShortHelpView([]key.Binding{short(k.Help, "ayuda")})
 }
+
+// aiBinding groups a and c, the Claude actions on a broken CI.
+var aiBinding = key.NewBinding(key.WithKeys("a", "c"), key.WithHelp("a/c", "Claude"))
 
 // actionsBinding groups o, p and x in the compact footer.
 var actionsBinding = key.NewBinding(key.WithKeys("o", "p", "x"), key.WithHelp("o/p/x", "acciones"))

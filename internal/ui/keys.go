@@ -7,6 +7,7 @@ type keyMap struct {
 	Up, Down, Top, Bottom, PgUp, PgDn key.Binding
 	Filter, Enter, Back               key.Binding
 	Open, Pull, Kill, Refresh         key.Binding
+	Analyze, Fix                      key.Binding
 	Help, Quit                        key.Binding
 }
 
@@ -28,6 +29,8 @@ func newKeyMap() keyMap {
 		Pull:    key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "git pull")),
 		Kill:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "matar proceso del puerto")),
 		Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refrescar todo")),
+		Analyze: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "CI roto: diagnóstico de Claude")),
+		Fix:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "CI roto: arreglar con Claude Code")),
 		Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "ayuda")),
 		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "salir")),
 	}
@@ -51,6 +54,6 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Next, k.Prev, k.Panel, k.Up, k.Down, k.Top, k.Bottom, k.PgUp, k.PgDn},
-		{k.Filter, k.Enter, k.Back, k.Open, k.Pull, k.Kill, k.Refresh, k.Help, k.Quit},
+		{k.Filter, k.Enter, k.Back, k.Open, k.Pull, k.Kill, k.Analyze, k.Fix, k.Refresh, k.Help, k.Quit},
 	}
 }
