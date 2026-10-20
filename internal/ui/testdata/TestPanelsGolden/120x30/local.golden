@@ -1,18 +1,18 @@
 ◆ ATALAYA  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2                                   12:00:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   PUERTOS (3)                                                                                                           
-  PUERTO   PROCESO                PID  PROYECTO  DIRECTORIO                                                             
-› :3000    → node                4242  odomto    /w/odomto/web                                                          
-  :5432    → postgres             865  —         /opt/homebrew/var/postgresql@17                                        
-  :8080    → kdx-server          5151  kdx       /w/kdx                                                                 
+  PUERTO  PROCESO        PID  PROYECTO  DIRECTORIO                                                                      
+› :3000   → node        4242  odomto    /w/odomto/web                                                                   
+  :5432   → postgres     865  —         /opt/homebrew/var/postgresql@17                                                 
+  :8080   → kdx-server  5151  kdx       /w/kdx                                                                          
                                                                                                                         
   DOCKER (1)                                                                                                            
-  CONTENEDOR            IMAGEN                  ESTADO              PROYECTO  PUERTOS                                   
-  odomto-db-1           postgres:17             Up 2 hours          odomto    0.0.0.0:5433->5432/tcp                    
+  CONTENEDOR   IMAGEN       ESTADO      PROYECTO  PUERTOS                                                               
+  odomto-db-1  postgres:17  Up 2 hours  odomto    0.0.0.0:5433->5432/tcp                                                
                                                                                                                         
   OLLAMA (1)                                                                                                            
-  MODELO                        PARÁMETROS             VRAM  SE DESCARGA                                                
-  qwen3:8b                      8.2B Q4_K_M          6.1 GB  en 4m00s                                                   
+  MODELO    PARÁMETROS     VRAM  SE DESCARGA                                                                            
+  qwen3:8b  8.2B Q4_K_M  6.1 GB  en 4m00s                                                                               
 
 
 

@@ -1,9 +1,8 @@
 ◆ ATALAYA  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2                                   12:00:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  PROYECTO  RAMA                  SYNC       CAMBIOS        STASH  ÚLTIMO COMMIT                                        
-› odomto    main                  ↑2 ↓1      +1 ~2 ?1       ≡1     3h    Ada · feat: sparkline de latencia              
-  kdx       feat/login            ✓          ~4                    20m   Grace · wip: login                             
-  cue       main                  ✓          limpio                2d    Ada · release 1.0                              
+  AGENTE  PROYECTO  DIRECTORIO                                                                                PID  DESDE
+› claude  odomto    /w/odomto                                                                                 777  2h13m
+  cline   —         /tmp/scratch                                                                              888  1m30s
 
 
 
@@ -26,5 +25,6 @@
 
 
 
-git ahora · fetch ahora                                                                                                 
+
+agents ahora                                                                                                            
 tab panel · j/↓ navegar · / filtrar · enter detalle · o abrir · p pull · x matar · r refrescar · ? ayuda · q salir      

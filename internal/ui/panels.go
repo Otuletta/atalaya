@@ -67,15 +67,6 @@ func (m Model) match(fields ...string) bool {
 	return false
 }
 
-// nameWidth sizes the project column to the longest project name.
-func (m Model) nameWidth() int {
-	w := 8
-	for _, p := range m.deps.Config.Projects {
-		w = max(w, ansi.StringWidth(p.Name))
-	}
-	return min(w, 24)
-}
-
 // loading returns the message to show when a source has no data yet.
 func (m Model) loading(source string) string {
 	e, ok := m.state.Get(source)
@@ -104,10 +95,17 @@ func (m Model) build(p Panel) panelView {
 // ---- 1. Repos ----
 
 func (m Model) reposPanel() panelView {
-	cols := []column{{title: "PROYECTO", width: m.nameWidth()}, {title: "RAMA", width: 20}, {title: "SYNC", width: 9},
-		{title: "CAMBIOS", width: 13}, {title: "STASH", width: 5}, {title: "ÚLTIMO COMMIT"}}
-	ws := widths(cols, m.contentWidth())
-	pv := panelView{header: header(cols, ws)}
+	t := table{cols: []column{
+		{title: "PROYECTO", max: 24, min: 8},
+		{title: "RAMA", max: 24, min: 10},
+		{title: "SYNC", max: 10},
+		{title: "CAMBIOS", max: 16},
+		{title: "STASH", hideEmpty: true},
+		{title: "HACE", right: true},
+		{title: "AUTOR", max: 16, drop: 1}, // first to go on a narrow terminal
+		{title: "ÚLTIMO COMMIT", flex: true, min: 24},
+	}}
+	var pv panelView
 	snap, ok := store.Data[collector.GitSnapshot](m.state, "git")
 	if !ok {
 		pv.empty = m.loading("git")
@@ -117,11 +115,17 @@ func (m Model) reposPanel() panelView {
 		pv.empty = sDim.Render("No hay proyectos con path. Ejecuta `atalaya init ~/tu/carpeta` o edita " + config.ContractHome(m.deps.Config.Path))
 		return pv
 	}
+	var repos []collector.Repo
 	for _, r := range snap.Repos {
-		if !m.match(r.Project, r.Branch) {
-			continue
+		if m.match(r.Project, r.Branch) {
+			t.add(m.repoCells(r)...)
+			repos = append(repos, r)
 		}
-		pv.rows = append(pv.rows, row{key: "repo:" + r.Project, selectable: true, item: r, line: line(cols, ws, m.repoCells(r)...)})
+	}
+	ws := t.layout(m.contentWidth())
+	pv.header = t.header(ws)
+	for i, l := range t.lines(ws) {
+		pv.rows = append(pv.rows, row{key: "repo:" + repos[i].Project, selectable: true, item: repos[i], line: l})
 	}
 	return pv
 }
@@ -130,7 +134,7 @@ func (m Model) repoCells(r collector.Repo) []string {
 	name := r.Project
 	switch {
 	case r.Err != "":
-		return []string{sRed.Render(name), "", "", "", "", sRed.Render(r.Err)}
+		return []string{sRed.Render(name), "", "", "", "", "", "", sRed.Render(r.Err)}
 	case r.OutOfSync():
 		name = sRed.Render(name)
 	case r.Dirty():
@@ -140,7 +144,11 @@ func (m Model) repoCells(r collector.Repo) []string {
 	if r.Detached {
 		branch = sDim.Render("@" + r.Branch)
 	}
-	return []string{name, branch, syncCell(r), changesCell(r), stashCell(r.Stash), m.commitCell(r.LastCommit)}
+	when, author, subject := "", "", sDim.Render("sin commits")
+	if c := r.LastCommit; c != nil {
+		when, author, subject = sDim.Render(ago(m.now, c.When)), sDim.Render(c.Author), c.Subject
+	}
+	return []string{name, branch, syncCell(r), changesCell(r), stashCell(r.Stash), when, author, subject}
 }
 
 func syncCell(r collector.Repo) string {
@@ -192,20 +200,17 @@ func stashCell(n int) string {
 	return sYellow.Render(fmt.Sprintf("≡%d", n))
 }
 
-func (m Model) commitCell(c *collector.Commit) string {
-	if c == nil {
-		return sDim.Render("sin commits")
-	}
-	return sDim.Render(fmt.Sprintf("%-5s %s ·", ago(m.now, c.When), c.Author)) + " " + c.Subject
-}
-
 // ---- 2. GitHub ----
 
 func (m Model) githubPanel() panelView {
-	cols := []column{{title: "REPO", width: m.nameWidth()}, {title: "CI", width: 26}, {title: "PRS", width: 4, right: true},
-		{title: "REVIEW", width: 6, right: true}, {title: "FALLOS"}}
-	ws := widths(cols, m.contentWidth())
-	pv := panelView{header: header(cols, ws)}
+	t := table{cols: []column{
+		{title: "REPO", max: 24, min: 8},
+		{title: "CI", max: 30, min: 12},
+		{title: "PRS", right: true},
+		{title: "REVIEW", right: true},
+		{title: "FALLOS", flex: true, min: 12},
+	}}
+	var pv panelView
 	snap, ok := store.Data[collector.GitHubSnapshot](m.state, "github")
 	if !ok {
 		pv.empty = m.loading("github")
@@ -215,44 +220,24 @@ func (m Model) githubPanel() panelView {
 		pv.empty = sDim.Render(`Ningún proyecto tiene github = "owner/repo" en la config.`)
 		return pv
 	}
+	// PR rows span the whole width; only repo rows go through the table.
+	type group struct {
+		repo collector.GitHubRepo
+		prs  []row
+	}
+	var groups []group
 	for _, r := range snap.Repos {
-		if !m.match(r.Project, r.Repo) {
-			continue
+		if m.match(r.Project, r.Repo) {
+			t.add(m.githubCells(r)...)
+			groups = append(groups, group{r, m.prRows(r)})
 		}
-		pv.rows = append(pv.rows, row{key: "gh:" + r.Repo, selectable: true, item: r, line: line(cols, ws, m.githubCells(r)...)})
-		requested := map[int]bool{}
-		for _, pr := range r.ReviewRequests {
-			requested[pr.Number] = true
-		}
-		prs := slices.Clone(r.PRs)
-		for _, pr := range r.ReviewRequests {
-			if !slices.ContainsFunc(prs, func(p collector.PullRequest) bool { return p.Number == pr.Number }) {
-				prs = append(prs, pr)
-			}
-		}
-		// Review requests first: they are waiting on you.
-		slices.SortStableFunc(prs, func(a, b collector.PullRequest) int {
-			switch {
-			case requested[a.Number] && !requested[b.Number]:
-				return -1
-			case requested[b.Number] && !requested[a.Number]:
-				return 1
-			}
-			return 0
-		})
-		// Requested reviews are always listed; other PRs up to a few, the
-		// detail view (enter) has all of them.
-		shown := 0
-		for _, pr := range prs {
-			if !requested[pr.Number] {
-				if shown == maxPRRows {
-					pv.rows = append(pv.rows, row{line: sDim.Render(fmt.Sprintf("     … %d PRs más (enter en el repo)", len(prs)-len(r.ReviewRequests)-shown))})
-					break
-				}
-				shown++
-			}
-			pv.rows = append(pv.rows, m.prRow(pr, requested[pr.Number], false))
-		}
+	}
+	ws := t.layout(m.contentWidth())
+	pv.header = t.header(ws)
+	for i, l := range t.lines(ws) {
+		g := groups[i]
+		pv.rows = append(pv.rows, row{key: "gh:" + g.repo.Repo, selectable: true, item: g.repo, line: l})
+		pv.rows = append(pv.rows, g.prs...)
 	}
 	others := snap.OtherReviewRequests
 	if len(others) > 0 && m.match("otros", "review") {
@@ -267,9 +252,47 @@ func (m Model) githubPanel() panelView {
 // maxPRRows caps the PRs listed under each repo.
 const maxPRRows = 3
 
+// prRows lists a repo's PRs under it: review requests first (they are
+// waiting on you) and always shown, other PRs up to maxPRRows. The detail
+// view has all of them.
+func (m Model) prRows(r collector.GitHubRepo) []row {
+	requested := map[int]bool{}
+	for _, pr := range r.ReviewRequests {
+		requested[pr.Number] = true
+	}
+	prs := slices.Clone(r.PRs)
+	for _, pr := range r.ReviewRequests {
+		if !slices.ContainsFunc(prs, func(p collector.PullRequest) bool { return p.Number == pr.Number }) {
+			prs = append(prs, pr)
+		}
+	}
+	slices.SortStableFunc(prs, func(a, b collector.PullRequest) int {
+		switch {
+		case requested[a.Number] && !requested[b.Number]:
+			return -1
+		case requested[b.Number] && !requested[a.Number]:
+			return 1
+		}
+		return 0
+	})
+	var rows []row
+	shown := 0
+	for _, pr := range prs {
+		if !requested[pr.Number] {
+			if shown == maxPRRows {
+				rows = append(rows, row{line: sDim.Render(fmt.Sprintf("     … %d PRs más (enter en el repo)", len(prs)-len(r.ReviewRequests)-shown))})
+				break
+			}
+			shown++
+		}
+		rows = append(rows, m.prRow(pr, requested[pr.Number], false))
+	}
+	return rows
+}
+
 func (m Model) githubCells(r collector.GitHubRepo) []string {
 	if r.Err != "" {
-		return []string{sRed.Render(r.Project), sRed.Render(r.Err)}
+		return []string{sRed.Render(r.Project), sDim.Render("—"), "", "", sRed.Render(r.Err)}
 	}
 	ci := sDim.Render("sin CI")
 	if r.CI != nil {
@@ -331,10 +354,16 @@ func (m Model) prRow(pr collector.PullRequest, requested, showRepo bool) row {
 const sparkWidth = 20
 
 func (m Model) healthPanel() panelView {
-	cols := []column{{title: "PROYECTO", width: m.nameWidth()}, {title: "ENDPOINT"}, {title: "ESTADO", width: 7},
-		{title: "LATENCIA", width: 8, right: true}, {title: "ÚLTIMOS MINUTOS", width: sparkWidth}, {title: "TLS", width: 6, right: true}}
-	ws := widths(cols, m.contentWidth())
-	pv := panelView{header: header(cols, ws)}
+	t := table{cols: []column{
+		{title: "PROYECTO", max: 20, min: 8},
+		{title: "ENDPOINT", flex: true, min: 24},
+		{title: "ESTADO"},
+		{title: "LATENCIA", right: true},
+		{title: "TENDENCIA", max: sparkWidth, min: 8},
+		{title: "TLS", right: true},
+	}}
+	const spark = 4 // index of TENDENCIA
+	var pv panelView
 	snap, ok := store.Data[collector.HealthSnapshot](m.state, "health")
 	if !ok {
 		pv.empty = m.loading("health")
@@ -344,11 +373,23 @@ func (m Model) healthPanel() panelView {
 		pv.empty = sDim.Render(`Ningún proyecto tiene health = ["https://…"] en la config.`)
 		return pv
 	}
+	var checks []collector.Check
 	for _, c := range snap.Checks {
-		if !m.match(c.Project, c.URL) {
-			continue
+		if m.match(c.Project, c.URL) {
+			t.add(healthCells(c)...)
+			checks = append(checks, c)
 		}
-		pv.rows = append(pv.rows, row{key: "health:" + c.URL, selectable: true, item: c, line: line(cols, ws, healthCells(c)...)})
+	}
+	ws := t.layout(m.contentWidth())
+	// The sparkline is drawn for the width it got, newest samples kept.
+	for i, c := range checks {
+		if ws[spark] != hidden {
+			t.rows[i][spark] = sparkline(c.History, ws[spark])
+		}
+	}
+	pv.header = t.header(ws)
+	for i, l := range t.lines(ws) {
+		pv.rows = append(pv.rows, row{key: "health:" + checks[i].URL, selectable: true, item: checks[i], line: l})
 	}
 	return pv
 }
@@ -371,7 +412,9 @@ func healthCells(c collector.Check) []string {
 	case c.LatencyMS > 1000:
 		latency = sYellow.Render(latency)
 	}
-	return []string{c.Project, endpoint, status, latency, sparkline(c.History, sparkWidth), tlsCell(c.TLS)}
+	// Placeholder as wide as the sparkline will want; drawn after layout.
+	spark := strings.Repeat(" ", min(len(c.History), sparkWidth))
+	return []string{c.Project, endpoint, status, latency, spark, tlsCell(c.TLS)}
 }
 
 func tlsCell(t *collector.TLSInfo) string {
@@ -393,7 +436,6 @@ func tlsCell(t *collector.TLSInfo) string {
 func (m Model) localPanel() panelView {
 	var pv panelView
 	w := m.contentWidth()
-	nw := m.nameWidth()
 
 	section := func(title string, n int, note string) {
 		t := sSection.Render(title)
@@ -407,13 +449,29 @@ func (m Model) localPanel() panelView {
 		}
 		pv.rows = append(pv.rows, row{line: t})
 	}
+	// emit adds a section's table: column titles, then one row per item.
+	emit := func(t *table, keys []string, items []any) {
+		if len(items) == 0 {
+			return
+		}
+		ws := t.layout(w)
+		pv.rows = append(pv.rows, row{line: t.header(ws)})
+		for i, l := range t.lines(ws) {
+			pv.rows = append(pv.rows, row{key: keys[i], selectable: true, item: items[i], line: l})
+		}
+	}
 
-	// Ports.
-	pcols := []column{{title: "PUERTO", width: 7}, {title: "PROCESO", width: 18}, {title: "PID", width: 6, right: true},
-		{title: "PROYECTO", width: nw}, {title: "DIRECTORIO"}}
-	pws := widths(pcols, w)
+	// Ports: `:3000 → node · odomto`.
 	if ports, ok := store.Data[collector.PortsSnapshot](m.state, "ports"); ok {
-		var rows []row
+		t := table{cols: []column{
+			{title: "PUERTO"},
+			{title: "PROCESO", max: 18, min: 8},
+			{title: "PID", right: true, drop: 2},
+			{title: "PROYECTO", max: 16, min: 8},
+			{title: "DIRECTORIO", flex: true, min: 12, drop: 1},
+		}}
+		var keys []string
+		var items []any
 		for _, p := range ports.Ports {
 			if !m.match(p.Project, p.Process, fmt.Sprint(p.Port)) {
 				continue
@@ -422,25 +480,28 @@ func (m Model) localPanel() panelView {
 			if p.Project != "" {
 				project = sCyan.Render(p.Project)
 			}
-			rows = append(rows, row{key: fmt.Sprintf("port:%d:%d", p.Port, p.PID), selectable: true, item: p,
-				line: line(pcols, pws, sBold.Render(fmt.Sprintf(":%d", p.Port)), "→ "+p.Process, sDim.Render(fmt.Sprint(p.PID)),
-					project, sDim.Render(config.ContractHome(p.Cwd)))})
+			t.add(sBold.Render(fmt.Sprintf(":%d", p.Port)), "→ "+p.Process, sDim.Render(fmt.Sprint(p.PID)),
+				project, sDim.Render(config.ContractHome(p.Cwd)))
+			keys = append(keys, fmt.Sprintf("port:%d:%d", p.Port, p.PID))
+			items = append(items, p)
 		}
-		section("PUERTOS", len(rows), "")
-		if len(rows) > 0 {
-			pv.rows = append(pv.rows, row{line: header(pcols, pws)})
-		}
-		pv.rows = append(pv.rows, rows...)
+		section("PUERTOS", len(items), "")
+		emit(&t, keys, items)
 	} else {
 		section("PUERTOS", 0, ansi.Strip(m.loading("ports")))
 	}
 
 	// Docker.
-	dcols := []column{{title: "CONTENEDOR", width: 20}, {title: "IMAGEN", width: 22}, {title: "ESTADO", width: 18},
-		{title: "PROYECTO", width: nw}, {title: "PUERTOS"}}
-	dws := widths(dcols, w)
 	if d, ok := store.Data[collector.DockerSnapshot](m.state, "docker"); ok && d.Available {
-		var rows []row
+		t := table{cols: []column{
+			{title: "CONTENEDOR", max: 24, min: 10},
+			{title: "IMAGEN", max: 24, min: 10},
+			{title: "ESTADO", max: 18, min: 8},
+			{title: "PROYECTO", max: 16, min: 8},
+			{title: "PUERTOS", flex: true, min: 10, drop: 1},
+		}}
+		var keys []string
+		var items []any
 		for _, c := range d.Containers {
 			if !m.match(c.Project, c.Name, c.Image) {
 				continue
@@ -449,14 +510,12 @@ func (m Model) localPanel() panelView {
 			if c.State != "running" {
 				state = sYellow.Render(c.Status)
 			}
-			rows = append(rows, row{key: "docker:" + c.ID, selectable: true, item: c,
-				line: line(dcols, dws, c.Name, sDim.Render(c.Image), state, sCyan.Render(c.Project), sDim.Render(c.Ports))})
+			t.add(c.Name, sDim.Render(c.Image), state, sCyan.Render(c.Project), sDim.Render(c.Ports))
+			keys = append(keys, "docker:"+c.ID)
+			items = append(items, c)
 		}
-		section("DOCKER", len(rows), "")
-		if len(rows) > 0 {
-			pv.rows = append(pv.rows, row{line: header(dcols, dws)})
-		}
-		pv.rows = append(pv.rows, rows...)
+		section("DOCKER", len(items), "")
+		emit(&t, keys, items)
 	} else if ok {
 		section("DOCKER", 0, d.Note)
 	} else {
@@ -464,10 +523,15 @@ func (m Model) localPanel() panelView {
 	}
 
 	// Ollama.
-	ocols := []column{{title: "MODELO", width: 28}, {title: "PARÁMETROS", width: 16}, {title: "VRAM", width: 9, right: true}, {title: "SE DESCARGA"}}
-	ows := widths(ocols, w)
 	if o, ok := store.Data[collector.OllamaSnapshot](m.state, "ollama"); ok && o.Available {
-		var rows []row
+		t := table{cols: []column{
+			{title: "MODELO", max: 30, min: 12},
+			{title: "PARÁMETROS", max: 16, drop: 1},
+			{title: "VRAM", right: true},
+			{title: "SE DESCARGA", flex: true, min: 8},
+		}}
+		var keys []string
+		var items []any
 		for _, md := range o.Models {
 			if !m.match(md.Name) {
 				continue
@@ -476,18 +540,16 @@ func (m Model) localPanel() panelView {
 			if !md.ExpiresAt.IsZero() {
 				expires = "en " + dur(md.ExpiresAt.Sub(m.now))
 			}
-			rows = append(rows, row{key: "ollama:" + md.Name, selectable: true, item: md,
-				line: line(ocols, ows, md.Name, sDim.Render(strings.TrimSpace(md.Params+" "+md.Quant)), size(md.VRAMBytes), expires)})
+			t.add(md.Name, sDim.Render(strings.TrimSpace(md.Params+" "+md.Quant)), size(md.VRAMBytes), expires)
+			keys = append(keys, "ollama:"+md.Name)
+			items = append(items, md)
 		}
 		note := ""
 		if len(o.Models) == 0 {
 			note = "corriendo, sin modelos cargados"
 		}
-		section("OLLAMA", len(rows), note)
-		if len(rows) > 0 {
-			pv.rows = append(pv.rows, row{line: header(ocols, ows)})
-		}
-		pv.rows = append(pv.rows, rows...)
+		section("OLLAMA", len(items), note)
+		emit(&t, keys, items)
 	} else if ok {
 		section("OLLAMA", 0, o.Note)
 	} else {
@@ -499,10 +561,14 @@ func (m Model) localPanel() panelView {
 // ---- 5. Agentes ----
 
 func (m Model) agentsPanel() panelView {
-	cols := []column{{title: "AGENTE", width: 10}, {title: "PROYECTO", width: m.nameWidth()}, {title: "DIRECTORIO"},
-		{title: "PID", width: 6, right: true}, {title: "DESDE", width: 7, right: true}}
-	ws := widths(cols, m.contentWidth())
-	pv := panelView{header: header(cols, ws)}
+	t := table{cols: []column{
+		{title: "AGENTE", max: 12},
+		{title: "PROYECTO", max: 16, min: 8},
+		{title: "DIRECTORIO", flex: true, min: 12},
+		{title: "PID", right: true, drop: 1},
+		{title: "DESDE", right: true},
+	}}
+	var pv panelView
 	snap, ok := store.Data[collector.AgentsSnapshot](m.state, "agents")
 	if !ok {
 		pv.empty = m.loading("agents")
@@ -512,6 +578,7 @@ func (m Model) agentsPanel() panelView {
 		pv.empty = sDim.Render("No hay agentes corriendo (patrones: " + strings.Join(m.deps.Config.Agents.Patterns, ", ") + ").")
 		return pv
 	}
+	var agents []collector.Agent
 	for _, a := range snap.Agents {
 		if !m.match(a.Project, a.Name, a.Cwd) {
 			continue
@@ -520,9 +587,14 @@ func (m Model) agentsPanel() panelView {
 		if a.Project != "" {
 			project = sCyan.Render(a.Project)
 		}
-		pv.rows = append(pv.rows, row{key: fmt.Sprintf("agent:%d", a.PID), selectable: true, item: a,
-			line: line(cols, ws, sBold.Render(a.Name), project, sDim.Render(config.ContractHome(a.Cwd)),
-				sDim.Render(fmt.Sprint(a.PID)), dur(m.now.Sub(a.Started)))})
+		t.add(sBold.Render(a.Name), project, sDim.Render(config.ContractHome(a.Cwd)),
+			sDim.Render(fmt.Sprint(a.PID)), dur(m.now.Sub(a.Started)))
+		agents = append(agents, a)
+	}
+	ws := t.layout(m.contentWidth())
+	pv.header = t.header(ws)
+	for i, l := range t.lines(ws) {
+		pv.rows = append(pv.rows, row{key: fmt.Sprintf("agent:%d", agents[i].PID), selectable: true, item: agents[i], line: l})
 	}
 	return pv
 }

@@ -565,26 +565,43 @@ func (m Model) render() string {
 }
 
 func (m Model) tabs() string {
-	brand := sBrand.Render("◆ ATALAYA") + " "
-	var parts []string
+	clock := sDim.Render(m.now.Format("15:04:05"))
+	if m.refreshing {
+		clock = sYellow.Render("⟳ ") + clock
+	}
+	// On a narrow terminal give up, in order: the brand's name, the clock,
+	// and the names of the inactive tabs. Numbers and badges always stay.
+	for _, v := range []struct {
+		brand, clock string
+		names        bool
+	}{
+		{sBrand.Render("◆ ATALAYA") + " ", clock, true},
+		{sBrand.Render("◆"), clock, true},
+		{sBrand.Render("◆"), "", true},
+		{sBrand.Render("◆"), "", false},
+	} {
+		left := v.brand + m.tabLabels(v.names)
+		if pad := m.width - ansi.StringWidth(left) - ansi.StringWidth(v.clock); pad >= 1 || (pad == 0 && v.clock == "") {
+			return left + strings.Repeat(" ", max(pad, 0)) + v.clock
+		}
+	}
+	return fit(sBrand.Render("◆")+m.tabLabels(false), m.width)
+}
+
+// tabLabels renders the tabs; without names only the active one is named.
+func (m Model) tabLabels(names bool) string {
+	var b strings.Builder
 	for p := range panelCount {
-		label := fmt.Sprintf("%d %s", p+1, panelNames[p])
-		style := sTab
+		style, label := sTab, fmt.Sprint(p+1)
 		if p == m.panel {
 			style = sTabOn
 		}
-		parts = append(parts, style.Render(label)+m.badge(p))
+		if names || p == m.panel {
+			label += " " + panelNames[p]
+		}
+		b.WriteString(style.Render(label) + m.badge(p))
 	}
-	left := brand + strings.Join(parts, "")
-	right := sDim.Render(m.now.Format("15:04:05"))
-	if m.refreshing {
-		right = sYellow.Render("⟳ ") + right
-	}
-	pad := m.width - ansi.StringWidth(left) - ansi.StringWidth(right)
-	if pad < 1 {
-		return fit(left, m.width)
-	}
-	return left + strings.Repeat(" ", pad) + right
+	return b.String()
 }
 
 func (m Model) panelLines(body int) []string {
@@ -653,13 +670,31 @@ func (m Model) statusLine() string {
 }
 
 func (m Model) helpLine() string {
+	k := m.keys
+	var full, compact []key.Binding
 	if m.detailOpen {
-		k := m.keys
-		return m.help.ShortHelpView([]key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar"),
-			short(k.Open, "abrir"), short(k.Pull, "pull"), short(k.Kill, "matar"), short(k.Quit, "salir")})
+		full = []key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar"),
+			short(k.Open, "abrir"), short(k.Pull, "pull"), short(k.Kill, "matar"), short(k.Quit, "salir")}
+		compact = []key.Binding{short(k.Back, "volver"), short(k.Down, "desplazar"), actionsBinding, short(k.Quit, "salir")}
+	} else {
+		full = k.ShortHelp()
+		compact = []key.Binding{short(k.Next, "panel"), short(k.Filter, "filtrar"), short(k.Enter, "detalle"),
+			actionsBinding, short(k.Help, "ayuda"), short(k.Quit, "salir")}
 	}
-	return m.help.ShortHelpView(m.keys.ShortHelp())
+	// Use the longest list that fits; the shorter ones point to ? for the
+	// rest. They are measured untruncated.
+	h := m.help
+	h.SetWidth(0)
+	for _, bs := range [][]key.Binding{full, compact, {short(k.Help, "ayuda"), short(k.Quit, "salir")}} {
+		if s := h.ShortHelpView(bs); ansi.StringWidth(s) <= m.width {
+			return s
+		}
+	}
+	return m.help.ShortHelpView([]key.Binding{short(k.Help, "ayuda")})
 }
+
+// actionsBinding groups o, p and x in the compact footer.
+var actionsBinding = key.NewBinding(key.WithKeys("o", "p", "x"), key.WithHelp("o/p/x", "acciones"))
 
 func (m Model) helpView() string {
 	cols := make([]string, 0, 2)

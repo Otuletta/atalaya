@@ -1,10 +1,10 @@
 ◆ ATALAYA  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2                                   12:00:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  REPO      CI                           PRS  REVIEW  FALLOS                                                            
-› odomto    ✗ CI 3m15s                     2     ◉ 1  ✗ test · 1 PR con checks rotos                                    
+  REPO    CI             PRS  REVIEW  FALLOS                                                                            
+› odomto  ✗ CI 3m15s       2     ◉ 1  ✗ test · 1 PR con checks rotos                                                    
      ◉ ✗ #41 Revisa el parser · grace · 26h                                                                             
        ✓ #42 feat: sparkline · otuletta · 2h                                                                            
-  cue       ⟳ Release 45s                  0       0                                                                    
+  cue     ⟳ Release 45s    0       0                                                                                    
                                                                                                                         
   REVIEWS EN OTROS REPOS (1)                                                                                            
      ◉ ⟳ #7 Terraform 2.0 · acme/infra · linus · 5m                                                                     

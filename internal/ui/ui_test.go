@@ -164,6 +164,11 @@ type harness struct {
 
 func start(t *testing.T) *harness {
 	t.Helper()
+	return startSized(t, 120, 30)
+}
+
+func startSized(t *testing.T, w, ht int) *harness {
+	t.Helper()
 	h := &harness{actions: &fakeActions{}}
 	m := New(Deps{
 		Config:  testConfig(),
@@ -177,7 +182,7 @@ func start(t *testing.T) *harness {
 			h.refresed = append(h.refresed, s)
 		},
 	})
-	h.tm = teatest.NewTestModel(t, m, teatest.WithInitialTermSize(120, 30))
+	h.tm = teatest.NewTestModel(t, m, teatest.WithInitialTermSize(w, ht))
 	return h
 }
 
@@ -216,30 +221,92 @@ func screen(m Model) string {
 	return ansi.Strip(m.View().Content)
 }
 
-func TestPanelsGolden(t *testing.T) {
-	for i, name := range []string{"repos", "github", "produccion", "local", "agentes"} {
-		t.Run(name, func(t *testing.T) {
-			h := start(t)
-			h.keys(string(rune('1' + i)))
-			golden.RequireEqual(t, []byte(screen(h.final(t))))
-		})
+// sizes are the terminals every screen is checked at: a roomy one and
+// 80×24, the default of macOS Terminal.app.
+var sizes = []struct{ w, h int }{{120, 30}, {80, 24}}
+
+func eachSize(t *testing.T, fn func(t *testing.T, w, h int)) {
+	for _, sz := range sizes {
+		t.Run(fmt.Sprintf("%dx%d", sz.w, sz.h), func(t *testing.T) { fn(t, sz.w, sz.h) })
 	}
+}
+
+func TestPanelsGolden(t *testing.T) {
+	eachSize(t, func(t *testing.T, w, ht int) {
+		for i, name := range []string{"repos", "github", "produccion", "local", "agentes"} {
+			t.Run(name, func(t *testing.T) {
+				h := startSized(t, w, ht)
+				h.keys(string(rune('1' + i)))
+				golden.RequireEqual(t, []byte(screen(h.final(t))))
+			})
+		}
+	})
 }
 
 func TestHelpGolden(t *testing.T) {
-	h := start(t)
-	h.keys("?")
-	golden.RequireEqual(t, []byte(screen(h.final(t))))
+	eachSize(t, func(t *testing.T, w, ht int) {
+		h := startSized(t, w, ht)
+		h.keys("?")
+		golden.RequireEqual(t, []byte(screen(h.final(t))))
+	})
 }
 
 func TestRepoDetailGolden(t *testing.T) {
-	h := start(t)
-	h.keys("enter")
-	m := h.final(t)
-	if !m.detailOpen {
-		t.Fatal("enter did not open the detail")
+	eachSize(t, func(t *testing.T, w, ht int) {
+		h := startSized(t, w, ht)
+		h.keys("enter")
+		m := h.final(t)
+		if !m.detailOpen {
+			t.Fatal("enter did not open the detail")
+		}
+		golden.RequireEqual(t, []byte(screen(m)))
+	})
+}
+
+// TestNothingOverflows renders every panel and the help at many widths: no
+// line may be wider than the terminal, and the tabs and the key hints must
+// never be cut.
+func TestNothingOverflows(t *testing.T) {
+	for w := 60; w <= 160; w += 5 {
+		m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
+		m.width, m.height = w, 24
+		views := map[string]Model{}
+		for p := range panelCount {
+			m.panel = p
+			views[panelNames[p]] = m
+		}
+		help := m
+		help.showHelp = true
+		views["ayuda"] = help
+		for name, v := range views {
+			lines := strings.Split(v.View().Content, "\n")
+			for i, l := range lines {
+				if lw := ansi.StringWidth(l); lw > w {
+					t.Errorf("%d cols, %s, line %d is %d wide: %q", w, name, i, lw, ansi.Strip(l))
+				}
+			}
+			// Every tab number and the active tab's name must be there.
+			tabs := ansi.Strip(lines[0])
+			if !strings.Contains(tabs, panelNames[v.panel]) || !strings.Contains(tabs, " 5") || strings.Contains(tabs, "…") {
+				t.Errorf("%d cols, %s: tabs cut: %q", w, name, tabs)
+			}
+			if hint := ansi.Strip(lines[len(lines)-1]); strings.Contains(hint, "…") {
+				t.Errorf("%d cols, %s: key hints cut: %q", w, name, hint)
+			}
+		}
 	}
-	golden.RequireEqual(t, []byte(screen(m)))
+}
+
+func TestCommitStaysReadableAt80(t *testing.T) {
+	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
+	m.width, m.height = 80, 24
+	s := screen(m)
+	if !strings.Contains(s, "feat: sparkline de laten") {
+		t.Errorf("the commit subject is not readable at 80 columns:\n%s", s)
+	}
+	if strings.Contains(s, "AUTOR") {
+		t.Errorf("the author column should give way to the subject at 80 columns:\n%s", s)
+	}
 }
 
 func TestNavigationAndTabs(t *testing.T) {

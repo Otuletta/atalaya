@@ -50,61 +50,8 @@ func fit(s string, w int) string {
 	return s + strings.Repeat(" ", w-ansi.StringWidth(s))
 }
 
-// column describes one table column. A zero width marks the flexible column,
-// which takes whatever space is left.
-type column struct {
-	title string
-	width int
-	right bool
-}
-
+// gap separates table columns.
 const gap = 2
-
-// widths resolves the flexible column against the total width.
-func widths(cols []column, total int) []int {
-	ws := make([]int, len(cols))
-	used, flex := 0, -1
-	for i, c := range cols {
-		ws[i] = c.width
-		used += c.width
-		if c.width == 0 {
-			flex = i
-		}
-	}
-	used += gap * (len(cols) - 1)
-	if flex >= 0 {
-		ws[flex] = max(total-used, 8)
-	}
-	return ws
-}
-
-// line renders one row of cells.
-func line(cols []column, ws []int, cells ...string) string {
-	var b strings.Builder
-	for i := range cols {
-		if i > 0 {
-			b.WriteString(strings.Repeat(" ", gap))
-		}
-		cell := ""
-		if i < len(cells) {
-			cell = cells[i]
-		}
-		if cols[i].right && ansi.StringWidth(cell) < ws[i] {
-			cell = strings.Repeat(" ", ws[i]-ansi.StringWidth(cell)) + cell
-		}
-		b.WriteString(fit(cell, ws[i]))
-	}
-	return strings.TrimRight(b.String(), " ")
-}
-
-// header renders the column titles.
-func header(cols []column, ws []int) string {
-	titles := make([]string, len(cols))
-	for i, c := range cols {
-		titles[i] = sColHead.Render(c.title)
-	}
-	return line(cols, ws, titles...)
-}
 
 // ago is a compact relative time: "ahora", "45s", "12m", "3h", "2d"…
 func ago(now, t time.Time) string {

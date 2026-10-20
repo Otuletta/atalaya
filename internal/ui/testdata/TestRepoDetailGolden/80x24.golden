@@ -1,0 +1,24 @@
+◆ 1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2    12:00:00
+────────────────────────────────────────────────────────────────────────────────
+odomto                                                                          
+  ruta          /w/odomto                                                       
+  rama          main                                                            
+  upstream      origin/main                                                     
+  sincronía     ↑2 ↓1  (2 adelante, 1 atrás)                                    
+  último fetch  hace 4m                                                         
+  stash         1                                                               
+                                                                                
+Último commit                                                                   
+  hash          abc1234def                                                      
+  autor         Ada                                                             
+  fecha         2026-10-19 09:00 (hace 3h)                                      
+  mensaje       feat: sparkline de latencia                                     
+                                                                                
+Cambios (3)                                                                     
+  M.  api/server.go                                                             
+  .M  web/app.tsx                                                               
+  ??  notes.md                                                                  
+                                                                                
+Acciones                                                                        
+git ahora · fetch ahora                                                         
+esc volver · j/↓ desplazar · o abrir · p pull · x matar · q salir               
