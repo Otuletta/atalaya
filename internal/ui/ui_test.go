@@ -377,6 +377,7 @@ func TestNothingOverflows(t *testing.T) {
 		help := m
 		help.showHelp = true
 		views["ayuda"] = help
+		views["paleta"], _ = m.openPalette()
 		for name, v := range views {
 			lines := strings.Split(v.View().Content, "\n")
 			for i, l := range lines {
@@ -617,6 +618,76 @@ func TestMergeGreenBotPRs(t *testing.T) {
 	if calls := h.actions.Calls(); len(calls) != 1 || calls[0] != "merge otuletta/odomto#50" {
 		t.Errorf("calls = %v", calls)
 	}
+}
+
+func TestPaletteJumpsToAnything(t *testing.T) {
+	h := start(t)
+	h.keys(":")
+	h.tm.Type("3000")
+	h.waitFor(t, ":3000")
+	h.keys("enter", "x") // lands on the port: x kills its process
+	h.waitFor(t, "¿Matar node (pid 4242) en :3000?")
+	m := h.final(t)
+	if m.panel != PanelLocal || m.palette != nil {
+		t.Errorf("panel = %v, palette open = %v", m.panel, m.palette != nil)
+	}
+}
+
+func TestPaletteFindsAPRByItsRepo(t *testing.T) {
+	h := start(t)
+	h.keys(":")
+	// The PR's row does not name its repo; the palette shows it beside it.
+	h.tm.Type("otuletta/odomto parser github")
+	h.keys("enter")
+	m := h.final(t)
+	if _, ok := m.selectedItem().(collector.PullRequest); !ok || m.panel != PanelGitHub {
+		t.Errorf("selected %T in panel %v", m.selectedItem(), m.panel)
+	}
+}
+
+func TestPaletteRunsCommands(t *testing.T) {
+	h := start(t)
+	h.keys(":")
+	h.tm.Type("refrescar")
+	h.keys("enter")
+	h.waitFor(t, "refrescando todas las fuentes")
+	h.keys(":")
+	h.tm.Type("produccion")
+	h.keys("enter")
+	m := h.final(t)
+	if m.panel != PanelHealth {
+		t.Errorf("panel = %v, want Producción", m.panel)
+	}
+}
+
+func TestPaletteClearsAFilterThatHidesTheTarget(t *testing.T) {
+	h := start(t)
+	h.keys("1", "/")
+	h.tm.Type("cue")
+	h.keys("enter", ":")
+	h.tm.Type("kdx login")
+	h.keys("enter")
+	m := h.final(t)
+	r, ok := m.selectedItem().(collector.Repo)
+	if !ok || r.Project != "kdx" || m.filter.Value() != "" {
+		t.Errorf("selected %+v, filter %q", m.selectedItem(), m.filter.Value())
+	}
+}
+
+func TestPaletteEscCloses(t *testing.T) {
+	h := start(t)
+	h.keys(":", "esc", "q") // q quits once the palette is closed
+	h.tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+func TestPaletteGolden(t *testing.T) {
+	eachSize(t, func(t *testing.T, w, ht int) {
+		h := startSized(t, w, ht)
+		h.keys(":")
+		h.tm.Type("odo")
+		h.waitFor(t, "de ")
+		golden.RequireEqual(t, []byte(screen(h.final(t))))
+	})
 }
 
 func TestAnalyzeNeedsABrokenCI(t *testing.T) {

@@ -1,0 +1,30 @@
+◆ 0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●3 ◉1 6 Actividad  7 Plugins ✗1    12:00:00
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+╭─────────╭──────────────────────────────────────────────────────────────────────────────────────────────────╮────────╮ 
+│ 1 Repos │ : odo                                                                                            │        │ 
+│ 1 desinc│ ──────────────────────────────────────────────────────────────────────────────────────────────── │3%      │ 
+│ odomto f│ › odomto  feat/sparkline  ↑2 ↓1  +1 ~2 ?1  ≡1  3h  Ada  feat: sparkline de latencia        Repos │ ▇█××   │ 
+│ kdx feat│   odomto  ✗ CI 3m15s  5  ◉ 1  ✗ test · 3 PR con checks rotos                              GitHub │ █▃▃×▃▃ │ 
+│         │   odomto  https://api.odomto.com/health  ● 200  142 ms  99.9%  310 ms  ▃▃▄▃█▃▃×▃▃  …  Producción │        │ 
+╰─────────│   odomto-db-1  postgres:17  Up 2 hours  odomto  0.0.0.0:5433->5432/tcp                     Local │────────╯ 
+╭─────────│   ✗  odomto  16  1 crítica, 11 alta                                                      Plugins │────────╮ 
+│ 4 Local │   claude  odomto  feat/sparkline  ⟳ trabajando  editando model.go · Sparkline de laten…  Agentes │        │ 
+│ 3 puerto│   hace 2m  ✗  odomto  CI roto en odomto  main · CI                                     Actividad │m       │ 
+│ :3000 → │   hace 30m  ◉  odomto  Te piden review en otuletta/odomto  #41 Revisa el parser · gr…  Actividad │a/odom… │ 
+│ :8080 → │   ↳ feat/sparkline · ⟳ CI 1m20s · PR #42                                         odomto · GitHub │ 10:00  │ 
+│ :5432 → │   ◉ ✗ #41 Revisa el parser · grace · 26h                                otuletta/odomto · GitHub │        │ 
+│ ollama q│                                                                                                  │        │ 
+╰─────────│ 19 de 37 · ↑↓ elegir · enter ir · esc cerrar                                                     │────────╯ 
+╭─────────╰──────────────────────────────────────────────────────────────────────────────────────────────────╯          
+│ 7 Plugins ✗1                        │                                                                                 
+│ ✗ npm audit · 2 proyectos · 1 con … │                                                                                 
+│ ✗ roto · token caducado             │                                                                                 
+╰─────────────────────────────────────╯                                                                                 
+
+
+
+
+
+
+plugin:roto: token caducado                                                                                             
+tab panel · j/↓ navegar · / filtrar · enter detalle · o abrir · p pull · x matar · r refrescar · ? ayuda · q salir      

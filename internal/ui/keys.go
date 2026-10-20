@@ -8,7 +8,7 @@ type keyMap struct {
 	Filter, Enter, Back               key.Binding
 	Open, Pull, Kill, Refresh         key.Binding
 	Analyze, Fix                      key.Binding
-	PullAll, Rerun, Merge             key.Binding
+	PullAll, Rerun, Merge, Palette    key.Binding
 	Help, Quit                        key.Binding
 }
 
@@ -35,6 +35,7 @@ func newKeyMap() keyMap {
 		PullAll: key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "pull de todos los repos atrasados")),
 		Rerun:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "CI roto: relanzar lo fallido")),
 		Merge:   key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "merge de los PRs en verde")),
+		Palette: key.NewBinding(key.WithKeys(":", "ctrl+k"), key.WithHelp(":", "ir a cualquier cosa")),
 		Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "ayuda")),
 		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "salir")),
 	}
@@ -57,7 +58,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 // FullHelp is the ? overlay.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Next, k.Prev, k.Panel, k.Up, k.Down, k.Top, k.Bottom, k.PgUp, k.PgDn, k.Filter, k.Enter, k.Back},
-		{k.Open, k.Pull, k.PullAll, k.Kill, k.Analyze, k.Fix, k.Rerun, k.Merge, k.Refresh, k.Help, k.Quit},
+		{k.Next, k.Prev, k.Panel, k.Up, k.Down, k.Top, k.Bottom, k.PgUp, k.PgDn, k.Palette, k.Filter, k.Enter},
+		{k.Back, k.Open, k.Pull, k.PullAll, k.Kill, k.Analyze, k.Fix, k.Rerun, k.Merge, k.Refresh, k.Help, k.Quit},
 	}
 }

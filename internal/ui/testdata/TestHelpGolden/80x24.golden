@@ -1,24 +1,24 @@
 ◆ 0 Resumen  1 ●1 ●1 2 ✗1 ◉2 3 ✗1 4  5 ●3 ◉1 6  7 ✗1                            
 ────────────────────────────────────────────────────────────────────────────────
-╭──────────────────────────────────────────────────────────────────────────────╮
-│  Atalaya v-test — torre de control de tus proyectos                          │
-│                                                                              │
-│  tab        siguiente panel            o  abrir en editor / navegador        │
-│  shift+tab  panel anterior             p  git pull                           │
-│  0-7        ir al panel                P  pull de todos los repos atrasados  │
-│  k/↑        subir                      x  matar proceso del puerto           │
-│  j/↓        bajar                      a  CI roto: diagnóstico de Claude     │
-│  g          inicio                     c  CI roto: arreglar con Claude Code  │
-│  G          final                      R  CI roto: relanzar lo fallido       │
-│  ctrl+u     media página arriba        M  merge de los PRs en verde          │
-│  ctrl+d     media página abajo         r  refrescar todo                     │
-│  /          filtrar                    ?  ayuda                              │
-│  enter      detalle                    q  salir                              │
-│  esc        volver / limpiar filtro                                          │
-│                                                                              │
-│  amarillo trabajo sin commitear · rojo desincronizado, roto o caído          │
-│  config: /cfg/atalaya/config.toml                                            │
-╰──────────────────────────────────────────────────────────────────────────────╯
+ ╭────────────────────────────────────────────────────────────────────────────╮ 
+ │  Atalaya v-test — torre de control de tus proyectos                        │ 
+ │                                                                            │ 
+ │  tab        siguiente panel        esc  volver / limpiar filtro            │ 
+ │  shift+tab  panel anterior         o    abrir en editor / navegador        │ 
+ │  0-7        ir al panel            p    git pull                           │ 
+ │  k/↑        subir                  P    pull de todos los repos atrasados  │ 
+ │  j/↓        bajar                  x    matar proceso del puerto           │ 
+ │  g          inicio                 a    CI roto: diagnóstico de Claude     │ 
+ │  G          final                  c    CI roto: arreglar con Claude Code  │ 
+ │  ctrl+u     media página arriba    R    CI roto: relanzar lo fallido       │ 
+ │  ctrl+d     media página abajo     M    merge de los PRs en verde          │ 
+ │  :          ir a cualquier cosa    r    refrescar todo                     │ 
+ │  /          filtrar                ?    ayuda                              │ 
+ │  enter      detalle                q    salir                              │ 
+ │                                                                            │ 
+ │  amarillo trabajo sin commitear · rojo desincronizado, roto o caído        │ 
+ │  config: /cfg/atalaya/config.toml                                          │ 
+ ╰────────────────────────────────────────────────────────────────────────────╯ 
                                                                                 
 plugin:roto: token caducado                                                     
 tab panel · / filtrar · enter detalle · o/p/x acciones · ? ayuda · q salir      

@@ -53,6 +53,7 @@ atalaya --demo               # o pruébalo con datos simulados, sin config
 |---|---|
 | `tab` / `shift+tab` / `0-7` | Cambiar de panel |
 | `j` `k` o flechas, `g` `G`, `ctrl+u` `ctrl+d` | Navegar (en el Resumen, también `h` `l` entre tarjetas) |
+| `:` o `ctrl+k` | **Paleta**: escribe unas letras y salta a cualquier repo, PR, puerto, agente, evento o panel, o lanza un comando. La búsqueda es aproximada (`odo bump` encuentra los PRs de dependabot de odomto) y no distingue tildes |
 | `/` | Filtrar proyectos (`esc` limpia el filtro) |
 | `enter` | Detalle del item: archivos cambiados, PRs, historial de latencia, comando del proceso… |
 | `o` | Abrir: el repo en tu editor, el PR o el run fallido en el navegador, `localhost:<puerto>` |

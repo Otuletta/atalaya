@@ -114,6 +114,7 @@ type Model struct {
 	detailKey  string
 	viewport   viewport.Model
 	confirm    *confirmation
+	palette    *palette
 	refreshing bool
 	// noteFailure is the CI a diagnosis note is about, so c works there.
 	noteFailure *ai.Failure
@@ -182,6 +183,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.help.SetWidth(msg.Width)
 		m.resizeViewport()
+		if m.palette != nil {
+			m.palette.input.SetWidth(max(m.paletteWidth()-8, 10))
+		}
 	case stateMsg:
 		m.state = msg.state
 		if m.refreshing && !m.anyRunning() {
@@ -232,7 +236,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		m, cmd = m.handleKey(msg)
 	case tea.PasteMsg:
-		if m.filtering {
+		switch {
+		case m.palette != nil:
+			cmd = m.palette.update(msg)
+		case m.filtering:
 			m.filter, cmd = m.filter.Update(msg)
 		}
 	case tea.MouseWheelMsg:
@@ -279,11 +286,17 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.palette != nil {
+		return m.paletteKey(msg)
+	}
 	if m.showHelp {
 		if key.Matches(msg, k.Help, k.Back, k.Quit) {
 			m.showHelp = false
 		}
 		return m, nil
+	}
+	if key.Matches(msg, k.Palette) {
+		return m.openPalette()
 	}
 	if m.deps.ReadOnly && key.Matches(msg, k.Open, k.Pull, k.Kill, k.Analyze, k.Fix, k.PullAll, k.Rerun, k.Merge) {
 		return m, m.statusCmd("solo lectura por SSH: las acciones se hacen en la máquina que ejecuta atalaya")
@@ -936,6 +949,9 @@ func (m Model) render() string {
 	}
 	b.WriteString(fit(m.statusLine(), m.width) + "\n")
 	b.WriteString(fit(m.helpLine(), m.width))
+	if m.palette != nil {
+		return overlay(b.String(), m.paletteView(), (m.width-m.paletteWidth())/2, 2)
+	}
 	return b.String()
 }
 

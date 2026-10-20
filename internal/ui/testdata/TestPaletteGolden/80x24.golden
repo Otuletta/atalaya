@@ -1,0 +1,24 @@
+◆ 0 Resumen  1 ●1 ●1 2 ✗1 ◉2 3 ✗1 4  5 ●3 ◉1 6  7 ✗1                            
+────────────────────────────────────────────────────────────────────────────────
+╭─╭──────────────────────────────────────────────────────────────────────────╮╮ 
+│ │ : odo                                                                    ││ 
+│ │ ──────────────────────────────────────────────────────────────────────── ││ 
+│ │ › odomto  feat/sparkline  ↑2 ↓1  +1 ~2 ?1  ≡1  3h  Ada  feat: sp…  Repos ││ 
+╰─│   odomto  ✗ CI 3m15s  5  ◉ 1  ✗ test · 3 PR con checks rotos      GitHub │╯ 
+╭─│   odomto  https://api.odomto.com/health  ● 200  142 ms  99.…  Producción │╮ 
+│ │   odomto-db-1  postgres:17  Up 2 hours  odomto  0.0.0.0:5433->54…  Local ││ 
+│ │   ✗  odomto  16  1 crítica, 11 alta                              Plugins ││ 
+│ │   claude  odomto  feat/sparkline  ⟳ trabajando  editando model…  Agentes ││ 
+╰─│   hace 2m  ✗  odomto  CI roto en odomto  main · CI             Actividad │╯ 
+╭─│   hace 30m  ◉  odomto  Te piden review en otuletta/odomto  #…  Actividad │╮ 
+│ │   ↳ feat/sparkline · ⟳ CI 1m20s · PR #42                 odomto · GitHub ││ 
+│ │   ◉ ✗ #41 Revisa el parser · grace · 26h        otuletta/odomto · GitHub ││ 
+│ │                                                                          ││ 
+╰─│ 19 de 37 · ↑↓ elegir · enter ir · esc cerrar                             │╯ 
+╭─╰──────────────────────────────────────────────────────────────────────────╯  
+│ 7 Plugins ✗1                        │                                         
+│ ✗ npm audit · 2 proyectos · 1 con … │                                         
+│ ✗ roto · token caducado             │                                         
+╰─────────────────────────────────────╯                                         
+plugin:roto: token caducado                                                     
+tab panel · / filtrar · enter detalle · o/p/x acciones · ? ayuda · q salir      
