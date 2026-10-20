@@ -840,7 +840,12 @@ func (m Model) panelLines(body int) []string {
 		if msg == "" {
 			msg = sDim.Render("Nada coincide con «" + m.filter.Value() + "». Esc limpia el filtro.")
 		}
-		return append(lines, "", "  "+msg)
+		lines = append(lines, "")
+		// Explanations are sentences: wrap them instead of cutting them.
+		for _, l := range strings.Split(ansi.Wordwrap(msg, max(m.width-4, 20), ""), "\n") {
+			lines = append(lines, "  "+l)
+		}
+		return lines
 	}
 	sel := m.selectedIndex(pv.rows)
 	rows := body - len(lines)

@@ -29,47 +29,52 @@ Ctrl+U
 Type "/tmp/atalaya-demo --demo"
 Enter
 Show
-Sleep 3s
 
-# Repos: yellow is uncommitted work, red is out of sync.
+# 0 Resumen: one card per source, only what needs attention.
+Sleep 3.5s
+Right
+Sleep 600ms
+Right
+Sleep 600ms
+
+# 1 Repos: yellow is uncommitted work, red is out of sync.
+Type "1"
+Sleep 1.5s
 Down
-Sleep 800ms
 Enter
-Sleep 2.5s
+Sleep 2s
 Escape
-Sleep 800ms
 
-# GitHub: CI, PRs and review requests from a single GraphQL query.
+# 2 GitHub: CI of the default and the local branch, bots grouped.
 Type "2"
+Sleep 2.5s
+# a: Claude explains the broken CI.
+Type "a"
+Sleep 4s
+Escape
+Sleep 500ms
+
+# 3 Producción: uptime, p95, sparkline and TLS; landing goes down.
+Type "3"
 Sleep 3.5s
 
-# Production: status, latency sparkline and TLS days left.
-Type "3"
-Sleep 5s
-
-# Local: ports mapped to process and project, Docker and Ollama.
-Type "4"
+# 5 Agentes: what each Claude Code session is doing, or that it waits.
+Type "5"
 Sleep 3s
 
-# Agents running on each repo.
-Type "5"
+# 6 Actividad: the tower's memory.
+Type "6"
+Sleep 3s
+
+# 7 Plugins: any program that prints a JSON table.
+Type "7"
 Sleep 2.5s
 
-# Filter every panel by project.
-Type "1"
-Sleep 600ms
-Type "/"
-Sleep 300ms
-Type "kdx"
-Sleep 1s
-Enter
-Sleep 1.5s
-Escape
-Sleep 600ms
-
+Type "0"
+Sleep 2s
 Type "?"
-Sleep 3s
+Sleep 2.5s
 Type "?"
-Sleep 500ms
+Sleep 400ms
 Type "q"
 Sleep 500ms

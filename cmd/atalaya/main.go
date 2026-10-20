@@ -301,9 +301,7 @@ func status(ctx context.Context, path string, demoMode, asJSON, fetch bool, time
 	snap := st.Snapshot()
 
 	if asJSON {
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
-		return enc.Encode(struct {
+		return writeJSON(out, struct {
 			GeneratedAt time.Time   `json:"generated_at"`
 			Version     string      `json:"version"`
 			State       store.State `json:"state"`
@@ -339,9 +337,7 @@ func showLog(n int, asJSON bool, out io.Writer) error {
 	log, dir := openLog()
 	evs := log.Recent(n)
 	if asJSON {
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
-		return enc.Encode(evs)
+		return writeJSON(out, evs)
 	}
 	if len(evs) == 0 {
 		where := "en memoria"
