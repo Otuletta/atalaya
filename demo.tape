@@ -44,6 +44,13 @@ Down
 Enter
 Sleep 2s
 Escape
+Sleep 500ms
+
+# P: pull every repo that is behind and clean, after a dialog.
+Type "P"
+Sleep 1.5s
+Type "y"
+Sleep 2s
 
 # 2 GitHub: CI of the default and the local branch, bots grouped.
 Type "2"
@@ -53,22 +60,39 @@ Type "a"
 Sleep 4s
 Escape
 Sleep 500ms
+# M on the dependabot row merges the green PRs; the dialog starts on No.
+Down 4
+Sleep 800ms
+Type "M"
+Sleep 1.8s
+Left
+Sleep 500ms
+Enter
+Sleep 1.5s
 
 # 3 Producción: uptime, p95, sparkline and TLS; landing goes down.
 Type "3"
-Sleep 3.5s
+Sleep 3s
 
-# 5 Agentes: what each Claude Code session is doing, or that it waits.
+# : jumps to anything, here a port by its number.
+Type ":"
+Sleep 600ms
+Type "3000"
+Sleep 1.2s
+Enter
+Sleep 2s
+
+# 5 Agentes: what each Claude Code session is doing and what it costs.
 Type "5"
 Sleep 3s
 
 # 6 Actividad: the tower's memory.
 Type "6"
-Sleep 3s
+Sleep 2.5s
 
 # 7 Plugins: any program that prints a JSON table.
 Type "7"
-Sleep 2.5s
+Sleep 2s
 
 Type "0"
 Sleep 2s
