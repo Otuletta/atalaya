@@ -76,6 +76,24 @@ func TestChangedCoalesces(t *testing.T) {
 	}
 }
 
+func TestSubscribersAreIndependent(t *testing.T) {
+	s := New()
+	sub := s.Subscribe()
+	s.Put("a", snap{1}, nil, time.Time{})
+	// The UI reads its signal; the other subscriber must still have its own.
+	<-s.Changed()
+	select {
+	case <-sub:
+	default:
+		t.Fatal("a reader consumed another reader's signal")
+	}
+	select {
+	case <-sub:
+		t.Fatal("signals were not coalesced per subscriber")
+	default:
+	}
+}
+
 func TestJSON(t *testing.T) {
 	s := New()
 	s.Put("git", snap{3}, nil, time.Time{})

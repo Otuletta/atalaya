@@ -130,6 +130,28 @@ func TestBotAuthors(t *testing.T) {
 	}
 }
 
+func TestNotify(t *testing.T) {
+	tests := map[string]struct{ ci, health bool }{
+		"":                                    {true, true},
+		"[notify]\nenabled = false\n":         {false, false},
+		"[notify]\nci = false\n":              {false, true},
+		"[notify]\nhealth = false\n":          {true, false},
+		"[notify]\nenabled = true\nci = true": {true, true},
+	}
+	for in, want := range tests {
+		cfg, err := Parse([]byte(in))
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if cfg.Notify.WantCI() != want.ci || cfg.Notify.WantHealth() != want.health {
+			t.Errorf("%q: ci=%v health=%v, want %+v", in, cfg.Notify.WantCI(), cfg.Notify.WantHealth(), want)
+		}
+	}
+	if _, err := Parse([]byte("[notify]\nenabled = \"sí\"\n")); err == nil {
+		t.Error("a non-boolean enabled was accepted")
+	}
+}
+
 func TestUnknownKeys(t *testing.T) {
 	_, err := Parse([]byte("[[project]]\nname = \"x\"\npath = \"/x\"\nhelth = [\"https://x\"]\n"))
 	if err == nil || !strings.Contains(err.Error(), "project.helth") {

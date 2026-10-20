@@ -154,6 +154,24 @@ func TestRetryAfterIsHonored(t *testing.T) {
 	})
 }
 
+func TestSlowDown(t *testing.T) {
+	f := &fake{name: "ports", interval: time.Minute, fn: func(context.Context, int32) (collector.Snapshot, error) { return 1, nil }}
+	s, st := start(t, f)
+	next := func() time.Duration { e, _ := st.Snapshot().Get("ports"); return time.Until(e.NextRun) }
+	eventually(t, "first run", func() bool { return f.calls.Load() == 1 && next() > 0 })
+	if d := next(); d > time.Minute {
+		t.Fatalf("normal wait = %v", d)
+	}
+
+	s.SlowDown(5, "ports", "unknown")
+	s.Refresh("ports")
+	eventually(t, "slowed run", func() bool { return f.calls.Load() == 2 && next() > 4*time.Minute })
+
+	s.SlowDown(1, "ports")
+	s.Refresh("ports")
+	eventually(t, "restored run", func() bool { return f.calls.Load() == 3 && next() <= time.Minute })
+}
+
 func TestRunOnce(t *testing.T) {
 	a := &fake{name: "a", interval: time.Hour, fn: func(context.Context, int32) (collector.Snapshot, error) { return 1, nil }}
 	b := &fake{name: "b", interval: time.Hour, fn: func(context.Context, int32) (collector.Snapshot, error) {

@@ -60,12 +60,14 @@ type Store struct {
 	entries map[string]Entry
 	version uint64
 	changed chan struct{}
+	subs    []chan struct{}
 	now     func() time.Time
 }
 
 // New returns an empty store.
 func New() *Store {
-	return &Store{entries: map[string]Entry{}, changed: make(chan struct{}, 1), now: time.Now}
+	changed := make(chan struct{}, 1)
+	return &Store{entries: map[string]Entry{}, changed: changed, subs: []chan struct{}{changed}, now: time.Now}
 }
 
 // Changed is signaled after every update. Signals coalesce: a slow reader
@@ -73,11 +75,23 @@ func New() *Store {
 // can never miss data or block a collector.
 func (s *Store) Changed() <-chan struct{} { return s.changed }
 
+// Subscribe returns a channel of its own with the same coalescing
+// behavior as Changed, for readers other than the UI (the notifier).
+func (s *Store) Subscribe() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ch := make(chan struct{}, 1)
+	s.subs = append(s.subs, ch)
+	return ch
+}
+
 func (s *Store) notify() {
 	s.version++
-	select {
-	case s.changed <- struct{}{}:
-	default:
+	for _, ch := range s.subs {
+		select {
+		case ch <- struct{}{}:
+		default: // a signal is already pending for this reader
+		}
 	}
 }
 

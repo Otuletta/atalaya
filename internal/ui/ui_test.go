@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -491,6 +492,22 @@ func TestLiveUpdate(t *testing.T) {
 		return bytes.Contains([]byte(ansi.Strip(string(b))), []byte("● 502"))
 	}, teatest.WithDuration(3*time.Second))
 	_ = tm.Quit()
+}
+
+func TestFocusIsReported(t *testing.T) {
+	var got []bool
+	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now },
+		Focus: func(focused bool) { got = append(got, focused) }})
+	if !m.View().ReportFocus {
+		t.Fatal("the view does not ask the terminal for focus events")
+	}
+	m.Update(tea.BlurMsg{})
+	m.Update(tea.FocusMsg{})
+	if !slices.Equal(got, []bool{false, true}) {
+		t.Errorf("focus calls = %v", got)
+	}
+	// Without a Focus callback the messages are harmless.
+	New(Deps{Config: testConfig(), Now: func() time.Time { return now }}).Update(tea.BlurMsg{})
 }
 
 func TestSmallTerminal(t *testing.T) {

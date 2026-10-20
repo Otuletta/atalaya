@@ -39,6 +39,9 @@ type Deps struct {
 	Store   *store.Store
 	Refresh func(sources ...string)
 	Actions Actions
+	// Focus is told when the terminal gains or loses focus, to poll less
+	// while nobody is looking. Terminals without focus reporting never call it.
+	Focus   func(focused bool)
 	Now     func() time.Time
 	Version string
 }
@@ -161,6 +164,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearStatusMsg:
 		if msg.id == m.statusID {
 			m.status = ""
+		}
+	case tea.FocusMsg:
+		if m.deps.Focus != nil {
+			m.deps.Focus(true)
+		}
+	case tea.BlurMsg:
+		if m.deps.Focus != nil {
+			m.deps.Focus(false)
 		}
 	case tea.KeyPressMsg:
 		m, cmd = m.handleKey(msg)
@@ -548,6 +559,7 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
 	v.WindowTitle = "atalaya"
 	return v
 }

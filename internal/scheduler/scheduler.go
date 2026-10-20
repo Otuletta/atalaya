@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/otuletta/atalaya/internal/collector"
@@ -42,6 +43,8 @@ type Scheduler struct {
 	store      *store.Store
 	collectors []collector.Collector
 	triggers   map[string]chan struct{}
+	// slowdown multiplies each collector's interval (1 = normal).
+	slowdown map[string]*atomic.Int64
 	// Jitter spreads retries so failing sources do not fire in lockstep.
 	// Tests set it to false.
 	Jitter bool
@@ -49,9 +52,12 @@ type Scheduler struct {
 
 // New prepares a scheduler. Collector names must be unique.
 func New(st *store.Store, cs ...collector.Collector) *Scheduler {
-	s := &Scheduler{store: st, collectors: cs, triggers: map[string]chan struct{}{}, Jitter: true}
+	s := &Scheduler{store: st, collectors: cs, triggers: map[string]chan struct{}{},
+		slowdown: map[string]*atomic.Int64{}, Jitter: true}
 	for _, c := range cs {
 		s.triggers[c.Name()] = make(chan struct{}, 1)
+		s.slowdown[c.Name()] = &atomic.Int64{}
+		s.slowdown[c.Name()].Store(1)
 	}
 	return s
 }
@@ -104,6 +110,17 @@ func (s *Scheduler) Refresh(names ...string) {
 	}
 }
 
+// SlowDown multiplies the interval of the named collectors by factor from
+// their next wait on; 1 restores it. The UI uses it to poll less while the
+// terminal is in the background. Pair it with Refresh to apply it now.
+func (s *Scheduler) SlowDown(factor int, names ...string) {
+	for _, n := range names {
+		if f, ok := s.slowdown[n]; ok {
+			f.Store(int64(max(factor, 1)))
+		}
+	}
+}
+
 func (s *Scheduler) loop(ctx context.Context, c collector.Collector) {
 	failures := 0
 	for {
@@ -112,7 +129,7 @@ func (s *Scheduler) loop(ctx context.Context, c collector.Collector) {
 		if ctx.Err() != nil {
 			return
 		}
-		wait := c.Interval()
+		wait := c.Interval() * time.Duration(s.slowdown[c.Name()].Load())
 		var retry *collector.RetryAfterError
 		switch {
 		case err == nil:

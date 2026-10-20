@@ -26,6 +26,7 @@ import (
 	"github.com/otuletta/atalaya/internal/collector"
 	"github.com/otuletta/atalaya/internal/config"
 	"github.com/otuletta/atalaya/internal/demo"
+	"github.com/otuletta/atalaya/internal/notify"
 	"github.com/otuletta/atalaya/internal/scheduler"
 	"github.com/otuletta/atalaya/internal/store"
 	"github.com/otuletta/atalaya/internal/ui"
@@ -146,6 +147,13 @@ func collectors(cfg *config.Config, withFetch bool) []collector.Collector {
 	return cs
 }
 
+// While the terminal is in the background, the local sources (which cost
+// CPU on every poll) run backgroundFactor times less often. GitHub and
+// health keep their pace: they feed the notifications.
+var backgroundSources = []string{"git", "ports", "agents", "docker", "ollama"}
+
+const backgroundFactor = 5
+
 // sources resolves what to watch: the real config and collectors, or the
 // simulated ones of --demo.
 func sources(path string, demoMode, withFetch bool) (*config.Config, []collector.Collector, ui.Actions, error) {
@@ -170,11 +178,23 @@ func dashboard(ctx context.Context, path string, demoMode bool) error {
 	defer cancel()
 	go sched.Run(ctx)
 
+	if rules := (notify.Rules{CI: cfg.Notify.WantCI(), Health: cfg.Notify.WantHealth()}); rules.CI || rules.Health {
+		go (&notify.Detector{Notifier: notify.System(), Rules: rules}).Watch(ctx, st)
+	}
+
 	m := ui.New(ui.Deps{
 		Config:  cfg,
 		Store:   st,
 		Refresh: sched.Refresh,
 		Actions: acts,
+		Focus: func(focused bool) {
+			if focused {
+				sched.SlowDown(1, backgroundSources...)
+				sched.Refresh(backgroundSources...) // catch up on what changed meanwhile
+			} else {
+				sched.SlowDown(backgroundFactor, backgroundSources...)
+			}
+		},
 		Version: version,
 	})
 	_, err = tea.NewProgram(m, tea.WithContext(ctx)).Run()

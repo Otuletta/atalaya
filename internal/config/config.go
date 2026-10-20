@@ -47,6 +47,24 @@ type GitHubSettings struct {
 	BotAuthors []string `toml:"bot_authors"`
 }
 
+// Notify configures desktop notifications. Every switch defaults to on;
+// they are pointers so a missing key can be told apart from false.
+type Notify struct {
+	Enabled *bool `toml:"enabled"`
+	// CI notifies when a CI breaks or is fixed.
+	CI *bool `toml:"ci"`
+	// Health notifies when an endpoint goes down or recovers.
+	Health *bool `toml:"health"`
+}
+
+func on(b *bool) bool { return b == nil || *b }
+
+// WantCI reports whether CI transitions are notified.
+func (n Notify) WantCI() bool { return on(n.Enabled) && on(n.CI) }
+
+// WantHealth reports whether endpoint transitions are notified.
+func (n Notify) WantHealth() bool { return on(n.Enabled) && on(n.Health) }
+
 // Intervals overrides how often each collector runs.
 type Intervals struct {
 	Git    Duration `toml:"git"`
@@ -71,6 +89,7 @@ type Config struct {
 	Agents     Agents         `toml:"agents"`
 	Ports      Ports          `toml:"ports"`
 	GitHub     GitHubSettings `toml:"github"`
+	Notify     Notify         `toml:"notify"`
 	Intervals  Intervals      `toml:"intervals"`
 
 	// Path is where the config was loaded from.

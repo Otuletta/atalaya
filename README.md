@@ -16,6 +16,8 @@ Sustituye el ritual de abrir GitHub, revisar el CI, comprobar que producción re
 | **4 Local** | Puertos en escucha mapeados a proceso y proyecto (`:3000 → node · odomto`), contenedores Docker y modelos cargados en Ollama. |
 | **5 Agentes** | Sesiones de Claude Code o Cline corriendo: en qué repo y desde hace cuánto. |
 
+**Notificaciones.** Con Atalaya abierto aunque esté en segundo plano, recibes una notificación del sistema cuando un CI se rompe o se arregla (en la rama por defecto o en la tuya) y cuando un endpoint se cae o se recupera. Solo se avisan los *cambios*: nada al arrancar por lo que ya estaba roto, nada repetido, y un endpoint no cuenta como caído hasta fallar dos veces seguidas.
+
 ## Instalación
 
 ```bash
@@ -95,6 +97,11 @@ patterns = ["claude", "cline"]         # globs sobre el nombre del ejecutable; d
 [github]
 bot_authors = ["dependabot", "renovate", "github-actions"]  # sus PRs van en una sola fila; las cuentas "…[bot]" siempre cuentan
 
+[notify]                               # notificaciones del sistema (macOS; notify-send en Linux)
+enabled = true
+ci = true                              # un CI se rompe o se arregla
+health = true                          # un endpoint se cae o se recupera
+
 [ports]
 ignore = ["rapportd", "ControlCenter"] # procesos a ocultar (por defecto, demonios de macOS)
 show_ephemeral = false                 # puertos ≥ 49152 que no son de ningún proyecto
@@ -138,6 +145,8 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 - **Git sin efectos secundarios.** `git status --porcelain=v2 -z` con `GIT_OPTIONAL_LOCKS=0`: consultar cada 5 s nunca toma `index.lock` ni choca con tus comandos. El parser propio (`internal/gitparse`) se prueba con fixtures generados desde repos reales en cada estado (renombrado, conflicto, detached, upstream borrado…) y con fuzzing.
 - **El fetch es una fuente aparte.** Así adelante/atrás refleja el remoto y no solo tu último `git fetch`, sin frenar el sondeo de 5 s.
 - **GitHub en una sola query GraphQL**, con un alias por repo (`r0: repository(…)`, `r1: …`) y otro por rama local (`b0: repository(…){ ref(qualifiedName: "refs/heads/…") }`), construida en tiempo de ejecución con `reflect.StructOf`, porque `githubv4` deriva la query de un tipo y el nombre de la rama va en el tag. Cuesta 1 punto de rate limit por minuto. GraphQL no admite peticiones condicionales (ETag), así que el presupuesto se protege leyendo el campo `rateLimit` de la propia respuesta y las cabeceras `Retry-After` y `X-RateLimit-Reset`: el scheduler espera hasta el reset en lugar de insistir.
+- **Las notificaciones son un lector más del store** (`internal/notify`): se suscriben como la UI, comparan cada estado con el anterior y solo avisan de transiciones. En macOS el texto viaja a `osascript` como argumento, nunca dentro del código AppleScript, así que unas comillas en el título de un PR no pueden romperlo.
+- **Menos sondeo sin foco.** La TUI pide a la terminal los eventos de foco. Mientras está en segundo plano, git, puertos, agentes, Docker y Ollama se consultan 5 veces menos; GitHub y health mantienen el ritmo porque alimentan las notificaciones. Al volver, todo se refresca al instante.
 - **CI honesto.** Se toma el último run de *cada* workflow y se muestra el más grave, así un "Dependabot Updates" verde no tapa un CI roto. Los runs programados antiguos sobre el mismo commit se ignoran.
 
 ## Desarrollo
@@ -149,6 +158,7 @@ go test ./internal/ui -update       # regenera los golden files tras un cambio v
 ./internal/gitparse/testdata/gen.sh # regenera los fixtures de git desde repos reales
 go test -fuzz FuzzParse ./internal/gitparse
 ATALAYA_LIVE=owner/repo go test -run TestGitHubLive -v ./internal/collector   # query real contra GitHub
+ATALAYA_NOTIFY_TEST=1 go test -run TestRealNotification ./internal/notify     # muestra una notificación real
 ```
 
 Los tests de la UI usan [teatest](https://github.com/charmbracelet/x/tree/main/exp/teatest): manejan el programa con teclas reales y comparan cada panel con un golden file (`internal/ui/testdata`).
@@ -163,6 +173,7 @@ Los tests de la UI usan [teatest](https://github.com/charmbracelet/x/tree/main/e
 | `internal/config` | Carga, validación y `init` |
 | `internal/ui` | Modelo Bubble Tea, paneles, detalle y estilos |
 | `internal/actions` | Lo que hacen `o`, `p` y `x` |
+| `internal/notify` | Notificaciones de transiciones (CI y producción) |
 | `internal/demo` | Fuentes simuladas para `--demo` y para el GIF |
 
 ### GIF y release
