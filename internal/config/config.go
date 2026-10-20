@@ -1,0 +1,294 @@
+// Package config loads and validates ~/.config/atalaya/config.toml.
+package config
+
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/BurntSushi/toml"
+)
+
+// Project is one registered project.
+type Project struct {
+	Name string `toml:"name"`
+	// Path is the local checkout. "~" is expanded on load.
+	Path string `toml:"path"`
+	// GitHub is "owner/repo". Optional.
+	GitHub string `toml:"github"`
+	// Health lists HTTP(S) endpoints to check. Optional.
+	Health []string `toml:"health"`
+}
+
+// Agents configures the coding-agent detector.
+type Agents struct {
+	// Patterns are matched against executable names, case-insensitively.
+	Patterns []string `toml:"patterns"`
+}
+
+// Ports configures the listening ports panel.
+type Ports struct {
+	// Ignore hides processes by name (macOS system daemons by default).
+	Ignore []string `toml:"ignore"`
+	// ShowEphemeral shows ports in the ephemeral range (49152+) that do not
+	// belong to a project. They are hidden by default because they are noise.
+	ShowEphemeral bool `toml:"show_ephemeral"`
+}
+
+// Intervals overrides how often each collector runs.
+type Intervals struct {
+	Git    Duration `toml:"git"`
+	Fetch  Duration `toml:"fetch"`
+	GitHub Duration `toml:"github"`
+	Health Duration `toml:"health"`
+	Ports  Duration `toml:"ports"`
+	Agents Duration `toml:"agents"`
+	Docker Duration `toml:"docker"`
+	Ollama Duration `toml:"ollama"`
+}
+
+// Config is the whole file.
+type Config struct {
+	// Editor opens repos with `o`. Defaults to $VISUAL, then $EDITOR, then
+	// the system's default app for folders.
+	Editor string `toml:"editor"`
+	// OllamaHost is the Ollama API address. Defaults to $OLLAMA_HOST or
+	// http://localhost:11434.
+	OllamaHost string    `toml:"ollama_host"`
+	Projects   []Project `toml:"project"`
+	Agents     Agents    `toml:"agents"`
+	Ports      Ports     `toml:"ports"`
+	Intervals  Intervals `toml:"intervals"`
+
+	// Path is where the config was loaded from.
+	Path string `toml:"-"`
+}
+
+// Duration is a time.Duration written as "5s" or "10m" in TOML.
+type Duration struct{ time.Duration }
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (d *Duration) UnmarshalText(b []byte) error {
+	v, err := time.ParseDuration(string(b))
+	if err != nil {
+		return err
+	}
+	d.Duration = v
+	return nil
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
+
+// Default intervals, from the design doc.
+var defaultIntervals = Intervals{
+	Git:    Duration{5 * time.Second},
+	Fetch:  Duration{10 * time.Minute},
+	GitHub: Duration{60 * time.Second},
+	Health: Duration{30 * time.Second},
+	Ports:  Duration{3 * time.Second},
+	Agents: Duration{5 * time.Second},
+	Docker: Duration{10 * time.Second},
+	Ollama: Duration{10 * time.Second},
+}
+
+// DefaultAgentPatterns are used when [agents] is missing.
+var DefaultAgentPatterns = []string{"claude", "cline"}
+
+// DefaultIgnoredProcesses are macOS daemons that always listen on ports.
+var DefaultIgnoredProcesses = []string{
+	"rapportd", "ControlCenter", "ARDAgent", "sharingd", "identityservicesd", "WiFiAgent", "AirPlayXPCHelper",
+}
+
+// DefaultPath returns $XDG_CONFIG_HOME/atalaya/config.toml or
+// ~/.config/atalaya/config.toml. macOS's ~/Library is deliberately not used:
+// a dotfile is easier to find, edit and version.
+func DefaultPath() (string, error) {
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "atalaya", "config.toml"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "atalaya", "config.toml"), nil
+}
+
+// ErrNotFound is returned by Load when the file does not exist.
+var ErrNotFound = errors.New("config not found")
+
+// Load reads, defaults and validates the config at path.
+func Load(path string) (*Config, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, path)
+	}
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := Parse(b)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	cfg.Path = path
+	return cfg, nil
+}
+
+// Parse decodes, defaults and validates a config.
+func Parse(b []byte) (*Config, error) {
+	var cfg Config
+	md, err := toml.Decode(string(b), &cfg)
+	if err != nil {
+		return nil, err
+	}
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		keys := make([]string, len(undecoded))
+		for i, k := range undecoded {
+			keys[i] = k.String()
+		}
+		return nil, fmt.Errorf("unknown keys: %s", strings.Join(keys, ", "))
+	}
+	cfg.applyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (c *Config) applyDefaults() {
+	for i := range c.Projects {
+		c.Projects[i].Path = ExpandHome(c.Projects[i].Path)
+	}
+	if c.Agents.Patterns == nil {
+		c.Agents.Patterns = DefaultAgentPatterns
+	}
+	if c.Ports.Ignore == nil {
+		c.Ports.Ignore = DefaultIgnoredProcesses
+	}
+	if c.OllamaHost == "" {
+		c.OllamaHost = os.Getenv("OLLAMA_HOST")
+	}
+	if c.OllamaHost == "" {
+		c.OllamaHost = "http://localhost:11434"
+	}
+	if !strings.Contains(c.OllamaHost, "://") {
+		c.OllamaHost = "http://" + c.OllamaHost
+	}
+	d := &c.Intervals
+	for _, p := range []struct{ v, def *Duration }{
+		{&d.Git, &defaultIntervals.Git},
+		{&d.Fetch, &defaultIntervals.Fetch},
+		{&d.GitHub, &defaultIntervals.GitHub},
+		{&d.Health, &defaultIntervals.Health},
+		{&d.Ports, &defaultIntervals.Ports},
+		{&d.Agents, &defaultIntervals.Agents},
+		{&d.Docker, &defaultIntervals.Docker},
+		{&d.Ollama, &defaultIntervals.Ollama},
+	} {
+		if p.v.Duration == 0 {
+			*p.v = *p.def
+		}
+	}
+}
+
+var githubRepoRE = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
+
+// Validate reports every problem at once, so a broken file can be fixed in
+// one pass.
+func (c *Config) Validate() error {
+	var errs []error
+	seen := map[string]bool{}
+	for i, p := range c.Projects {
+		where := fmt.Sprintf("project #%d", i+1)
+		if p.Name != "" {
+			where = fmt.Sprintf("project %q", p.Name)
+		}
+		switch {
+		case p.Name == "":
+			errs = append(errs, fmt.Errorf("%s: name is required", where))
+		case seen[p.Name]:
+			errs = append(errs, fmt.Errorf("%s: duplicate name", where))
+		}
+		seen[p.Name] = true
+		if p.Path == "" && p.GitHub == "" && len(p.Health) == 0 {
+			errs = append(errs, fmt.Errorf("%s: needs at least one of path, github or health", where))
+		}
+		if p.Path != "" && !filepath.IsAbs(p.Path) {
+			errs = append(errs, fmt.Errorf("%s: path must be absolute or start with ~: %s", where, p.Path))
+		}
+		if p.GitHub != "" && !githubRepoRE.MatchString(p.GitHub) {
+			errs = append(errs, fmt.Errorf("%s: github must be owner/repo: %q", where, p.GitHub))
+		}
+		for _, h := range p.Health {
+			u, err := url.Parse(h)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				errs = append(errs, fmt.Errorf("%s: health must be an http(s) URL: %q", where, h))
+			}
+		}
+	}
+	for _, p := range c.Agents.Patterns {
+		if strings.TrimSpace(p) == "" {
+			errs = append(errs, errors.New("agents: empty pattern"))
+		}
+	}
+	d := c.Intervals
+	for name, v := range map[string]Duration{
+		"git": d.Git, "fetch": d.Fetch, "github": d.GitHub, "health": d.Health,
+		"ports": d.Ports, "agents": d.Agents, "docker": d.Docker, "ollama": d.Ollama,
+	} {
+		if v.Duration < time.Second {
+			errs = append(errs, fmt.Errorf("intervals.%s: must be at least 1s, got %s", name, v))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ProjectForPath returns the project whose path contains dir, preferring the
+// deepest match (a project nested inside another).
+func (c *Config) ProjectForPath(dir string) (Project, bool) {
+	var best Project
+	found := false
+	for _, p := range c.Projects {
+		if p.Path == "" {
+			continue
+		}
+		if dir == p.Path || strings.HasPrefix(dir, p.Path+string(filepath.Separator)) {
+			if !found || len(p.Path) > len(best.Path) {
+				best, found = p, true
+			}
+		}
+	}
+	return best, found
+}
+
+// ExpandHome replaces a leading ~ with the home directory.
+func ExpandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, p[1:])
+}
+
+// ContractHome replaces the home directory with ~ for display.
+func ContractHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+string(filepath.Separator)) {
+		return "~" + p[len(home):]
+	}
+	return p
+}

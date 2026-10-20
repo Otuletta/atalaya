@@ -1,0 +1,5 @@
+/dist/
+/atalaya
+*.test
+*.out
+coverage.*
