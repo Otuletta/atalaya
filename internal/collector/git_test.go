@@ -116,6 +116,56 @@ func TestGitAndFetch(t *testing.T) {
 	}
 }
 
+// TestGitIdleRepos follows one repo through the cache: an idle repo is
+// read less often, and git's own files wake it up at once.
+func TestGitIdleRepos(t *testing.T) {
+	clone := newClone(t)
+	git(t, clone, "add", ".")
+	git(t, clone, "commit", "-qm", "limpio")
+	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	g := &Git{Projects: []config.Project{{Name: "app", Path: clone}}, Now: func() time.Time { return at }}
+	read := func(after time.Duration) Repo {
+		t.Helper()
+		at = at.Add(after)
+		snap, err := g.Collect(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap.(GitSnapshot).Repos[0]
+	}
+	if r := read(0); r.Dirty() || r.LastCommit.Subject != "limpio" {
+		t.Fatalf("start = %+v", r)
+	}
+	read(3 * time.Minute) // unchanged for 3 minutes: idle from now on
+	write(t, filepath.Join(clone, "a.txt"), "editado\n")
+	if r := read(5 * time.Second); r.Dirty() {
+		t.Error("an idle repo was read on the next poll")
+	}
+	if r := read(11 * time.Second); !r.Dirty() {
+		t.Error("an idle repo was not read after idleEvery")
+	}
+
+	read(3 * time.Minute) // idle again
+	git(t, clone, "add", ".")
+	if r := read(5 * time.Second); r.Changes.Staged != 1 {
+		t.Errorf("git add did not wake the repo up: %+v", r.Changes)
+	}
+	git(t, clone, "commit", "-qm", "otro")
+	wt := filepath.Join(filepath.Dir(clone), "clone-wt")
+	git(t, clone, "worktree", "add", "-q", "-b", "wt", wt)
+	r := read(5 * time.Second)
+	if r.LastCommit == nil || r.LastCommit.Subject != "otro" {
+		t.Errorf("last commit after a commit = %+v", r.LastCommit)
+	}
+	if len(r.Worktrees) != 1 || r.Worktrees[0].Branch != "wt" {
+		t.Errorf("worktrees after worktree add = %+v", r.Worktrees)
+	}
+	git(t, wt, "checkout", "-q", "-b", "wt2")
+	if r := read(5 * time.Second); len(r.Worktrees) != 1 || r.Worktrees[0].Branch != "wt2" {
+		t.Errorf("worktrees after a checkout inside one = %+v", r.Worktrees)
+	}
+}
+
 func TestWorktrees(t *testing.T) {
 	clone := newClone(t)
 	wt := filepath.Join(filepath.Dir(clone), "clone-feature")
@@ -165,5 +215,42 @@ func TestParseLogLine(t *testing.T) {
 		if _, err := parseLogLine([]byte(bad)); err == nil {
 			t.Errorf("parseLogLine(%q) did not fail", bad)
 		}
+	}
+}
+
+func TestAgentPlaceIsCachedUntilHEADMoves(t *testing.T) {
+	clone := newClone(t)
+	a := &Agents{}
+	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	seen := map[string]place{}
+	if b, _ := a.place(context.Background(), clone, at, seen); b != "main" {
+		t.Fatalf("branch = %q", b)
+	}
+	a.places = seen
+	if p := seen[clone]; p.head == "" || p.stamp == "" {
+		t.Fatalf("no HEAD to watch: %+v", p)
+	}
+	git(t, clone, "checkout", "-q", "-b", "otra")
+	seen = map[string]place{}
+	if b, _ := a.place(context.Background(), clone, at, seen); b != "otra" {
+		t.Errorf("after a checkout the branch is %q", b)
+	}
+}
+
+func TestCouldMatch(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		want bool
+	}{
+		{"com.apple.WebKi", false},
+		{"claude-code-hel", true}, // "claude" is its start
+		{"cl", true},
+	} {
+		if got := couldMatch([]string{"claude", "cline"}, c.name); got != c.want {
+			t.Errorf("couldMatch(%q) = %v", c.name, got)
+		}
+	}
+	if !couldMatch([]string{"*agent"}, "anything-at-all") {
+		t.Error("a pattern that starts with a glob must match any name")
 	}
 }

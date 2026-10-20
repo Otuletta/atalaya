@@ -163,7 +163,7 @@ command = ["~/bin/disk.sh", "--json"]
 
 [[plugin]]
 name = "npm-audit"
-command = ["python3", "audit.py"]
+command = ["python3", "~/plugins/audit.py"]
 interval = "30m"
 `))
 	if err != nil {
@@ -173,8 +173,8 @@ interval = "30m"
 	if p := cfg.Plugins[0]; p.Command[0] != filepath.Join(home, "bin/disk.sh") || p.Interval.Duration != time.Minute {
 		t.Errorf("plugin 0 = %+v", p)
 	}
-	if cfg.Plugins[1].Interval.Duration != 30*time.Minute {
-		t.Errorf("plugin 1 interval = %v", cfg.Plugins[1].Interval)
+	if p := cfg.Plugins[1]; p.Interval.Duration != 30*time.Minute || p.Command[1] != filepath.Join(home, "plugins/audit.py") {
+		t.Errorf("plugin 1 = %+v", p)
 	}
 	_, err = Parse([]byte(`
 [[plugin]]

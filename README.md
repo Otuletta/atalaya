@@ -1,5 +1,7 @@
 # Atalaya
 
+**Español** · [English](README.en.md)
+
 **Torre de control para tus proyectos en la terminal.** Un comando, `atalaya`, abre un panel con el estado en tiempo real de todos tus repos: git, CI y PRs de GitHub, salud de producción, puertos locales, contenedores, modelos de Ollama y tus agentes de código: qué están haciendo y cuándo te esperan. Recuerda lo que pasa, te avisa de lo que se rompe y, con una tecla, le pide a Claude que lo explique o lo arregle.
 
 ![demo](demo.gif)
@@ -179,6 +181,8 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 
 ## Arquitectura
 
+Las decisiones de diseño, lo que se midió y lo que se descartó están en [docs/arquitectura.md](docs/arquitectura.md).
+
 ```
    TUI local     sesiones SSH     detector               status.json
    (Bubble Tea)  (Wish, lectura)  (eventos, avisos)      (prompt, SwiftBar)
@@ -208,6 +212,7 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 - **Cada cambio es un evento.** El detector (`internal/notify`) es un lector más del store: compara cada estado con el anterior y produce eventos, que van al log de actividad (siempre) y a una notificación (si `[notify]` lo pide). El primer estado visto es la línea base, así que arrancar nunca «descubre» lo que ya era así. En macOS el texto viaja a `osascript` como argumento, nunca dentro del código AppleScript, así que unas comillas en el título de un PR no pueden romperlo.
 - **Agentes por su transcripción.** Claude Code guarda cada sesión en `~/.claude/projects/<carpeta>/<id>.jsonl`. Atalaya empareja cada proceso con la suya (por `--resume=<id>` o la más reciente de su carpeta), lee solo los últimos 512 KB, cachea por tamaño y fecha, y deduce el estado del último mensaje: turno terminado → te espera; herramienta pendiente sin actividad ni CPU durante 30 s → probablemente un permiso. El formato es interno de Claude Code, así que todo vive en `collector/sessions.go` y, si cambia, el panel simplemente no muestra sesión.
 - **Coste leído de forma incremental.** Las transcripciones pueden sumar gigabytes (1,7 GB en una semana real). El collector de uso solo lee los bytes nuevos de cada archivo, busca el bloque `usage` sin decodificar la línea entera, cuenta cada mensaje una vez (Claude Code escribe un mensaje con varios bloques en varias líneas con el mismo id) y guarda su progreso en `usage.json`: la primera lectura de 1,7 GB tarda ~1 s y las siguientes, menos de un milisegundo. Los precios son los publicados por Anthropic (octubre de 2026); con una suscripción a Claude Code no pagas por token, así que es el *equivalente* en la API.
+- **Barato en reposo.** Arrancar un proceso git cuesta ~8 ms de CPU, así que Atalaya lanza los mínimos: el último commit solo se relee cuando se mueve HEAD, la lista de worktrees cuando cambia su carpeta, y un repo quieto durante 2 minutos se consulta cada 15 s salvo que los archivos de git digan que se movió (un commit, un checkout, un `git add`, un pull). Los procesos se listan con una sola llamada `sysctl` (0,2 ms frente a 45) y la rama de cada agente se cachea hasta que cambie su HEAD. Con 5 repos y 7 agentes, en régimen estable: unos 4,6 s de CPU por minuto (≈8 % de un núcleo, contando los `git` y `lsof` que lanza), frente a 7,2 s antes de estas optimizaciones; baja más cuando los repos llevan un rato quietos.
 - **Menos sondeo sin foco.** La TUI pide a la terminal los eventos de foco. Mientras está en segundo plano, git, puertos, agentes, Docker y Ollama se consultan 5 veces menos; GitHub y health mantienen el ritmo porque alimentan las notificaciones. Al volver, todo se refresca al instante.
 - **CI honesto.** Se toma el último run de *cada* workflow y se muestra el más grave, así un "Dependabot Updates" verde no tapa un CI roto. Los runs programados antiguos sobre el mismo commit se ignoran.
 
@@ -221,6 +226,8 @@ go test ./internal/ui -update       # regenera los golden files tras un cambio v
 go test -fuzz FuzzParse ./internal/gitparse
 ATALAYA_LIVE=owner/repo go test -run TestGitHubLive -v ./internal/collector   # query real contra GitHub
 ATALAYA_NOTIFY_TEST=1 go test -run TestRealNotification ./internal/notify     # muestra una notificación real
+go test -tags measure -run TestMeasure -v ./internal/collector   # CPU que gasta cada fuente con tu config
+ATALAYA_CPUPROFILE=cpu.prof atalaya && go tool pprof -top cpu.prof   # perfil de CPU del propio proceso
 ```
 
 Los tests de la UI usan [teatest](https://github.com/charmbracelet/x/tree/main/exp/teatest): manejan el programa con teclas reales y comparan cada panel con un golden file (`internal/ui/testdata`).

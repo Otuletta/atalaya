@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
 	"syscall"
 	"time"
 
@@ -55,9 +56,33 @@ La config vive en %s
 `
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+	stop := startProfile()
+	err := run(os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "atalaya:", err)
 		os.Exit(1)
+	}
+}
+
+// startProfile writes a CPU profile to $ATALAYA_CPUPROFILE, to measure
+// Atalaya itself.
+func startProfile() (stop func()) {
+	path := os.Getenv("ATALAYA_CPUPROFILE")
+	if path == "" {
+		return func() {}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return func() {}
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		_ = f.Close()
+		return func() {}
+	}
+	return func() {
+		pprof.StopCPUProfile()
+		_ = f.Close()
 	}
 }
 

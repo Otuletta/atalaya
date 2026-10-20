@@ -252,8 +252,10 @@ func (c *Config) applyDefaults() {
 		if p.Interval.Duration == 0 {
 			p.Interval.Duration = time.Minute
 		}
-		if len(p.Command) > 0 {
-			p.Command[0] = ExpandHome(p.Command[0])
+		// Without a shell nobody expands ~, in the program or in the
+		// script it runs: `["python3", "~/plugins/audit.py"]`.
+		for j, arg := range p.Command {
+			p.Command[j] = ExpandHome(arg)
 		}
 	}
 	if c.OllamaHost == "" {

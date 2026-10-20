@@ -2,6 +2,8 @@ package collector
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -54,6 +56,68 @@ type Agents struct {
 	matcher  *projectMatcher
 	sessions sessionReader
 	cpu      map[int32]cpuSample
+	places   map[string]place // by cwd
+}
+
+// procEntry is a process as listed, before it is looked at closer. ppid is
+// -1 when the listing did not include it.
+type procEntry struct {
+	pid, ppid int32
+	name      string
+	truncated bool // the kernel cut the name: the full one must be asked for
+}
+
+// place is where an agent works, cached by cwd: one `git rev-parse` per
+// agent every poll adds up. It is read again when the HEAD of its git dir
+// changes (a checkout), and a folder outside git every placeRetry.
+type place struct {
+	branch, worktree string
+	head, stamp      string
+	checked          time.Time
+}
+
+const placeRetry = time.Minute
+
+// couldMatch reports whether a truncated name may belong to an agent: when
+// it shares the literal start of a pattern.
+func couldMatch(patterns []string, name string) bool {
+	for _, p := range patterns {
+		lit := p
+		if i := strings.IndexAny(p, "*?[\\"); i >= 0 {
+			lit = p[:i]
+		}
+		if strings.HasPrefix(name, lit) || strings.HasPrefix(lit, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func headStamp(head string) string {
+	info, err := os.Stat(head)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d.%d", info.Size(), info.ModTime().UnixNano())
+}
+
+// place is gitPlace, cached.
+func (a *Agents) place(ctx context.Context, cwd string, now time.Time, seen map[string]place) (branch, worktree string) {
+	if p, ok := a.places[cwd]; ok {
+		fresh := p.head != "" && headStamp(p.head) == p.stamp
+		if fresh || p.head == "" && now.Sub(p.checked) < placeRetry {
+			seen[cwd] = p
+			return p.branch, p.worktree
+		}
+	}
+	branch, worktree, gitDir := gitPlaceDir(ctx, cwd)
+	p := place{branch: branch, worktree: worktree, checked: now}
+	if gitDir != "" {
+		p.head = filepath.Join(gitDir, "HEAD")
+		p.stamp = headStamp(p.head)
+	}
+	seen[cwd] = p
+	return branch, worktree
 }
 
 // cpuSample is a process's total CPU time at a moment, to compute its use
@@ -69,16 +133,23 @@ func (a *Agents) Interval() time.Duration { return a.Every }
 // gitPlace is the branch checked out in dir and, when dir is a linked
 // worktree, the worktree's name. Both are empty outside a repository.
 func gitPlace(ctx context.Context, dir string) (branch, worktree string) {
+	branch, worktree, _ = gitPlaceDir(ctx, dir)
+	return branch, worktree
+}
+
+// gitPlaceDir is gitPlace plus the git dir, whose HEAD tells when the
+// branch changes.
+func gitPlaceDir(ctx context.Context, dir string) (branch, worktree, gitDir string) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	out, err := run(ctx, gitEnv, "git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD",
 		"--show-toplevel", "--absolute-git-dir", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
-		return "", ""
+		return "", "", ""
 	}
 	f := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(f) != 4 {
-		return "", ""
+		return "", "", ""
 	}
 	branch = f[0]
 	if branch == "HEAD" {
@@ -87,7 +158,7 @@ func gitPlace(ctx context.Context, dir string) (branch, worktree string) {
 	if f[2] != f[3] { // a linked worktree has its own git dir
 		worktree = filepath.Base(f[1])
 	}
-	return branch, worktree
+	return branch, worktree, f[2]
 }
 
 // MatchAgent returns the matched executable name, or "".
@@ -113,7 +184,7 @@ func (a *Agents) Collect(ctx context.Context) (Snapshot, error) {
 	if a.matcher == nil {
 		a.matcher = newProjectMatcher(a.Projects)
 	}
-	procs, err := process.ProcessesWithContext(ctx)
+	procs, err := allProcs(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -123,26 +194,37 @@ func (a *Agents) Collect(ctx context.Context) (Snapshot, error) {
 		ppid int32
 	}
 	hits := map[int32]hit{}
-	for _, p := range procs {
+	for _, e := range procs {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		name, err := p.NameWithContext(ctx)
-		if err != nil {
-			continue
+		var p *process.Process
+		proc := func() *process.Process {
+			if p == nil {
+				p, _ = process.NewProcessWithContext(ctx, e.pid)
+			}
+			return p
 		}
-		var argv []string
+		name := e.name
+		if e.truncated && couldMatch(a.Patterns, name) && proc() != nil {
+			if full, err := p.NameWithContext(ctx); err == nil {
+				name = full
+			}
+		}
 		matched := MatchAgent(a.Patterns, name, nil)
-		if matched == "" && interpreters[name] {
+		if matched == "" && interpreters[name] && proc() != nil {
 			// Only interpreters pay for reading their argv.
-			argv, _ = p.CmdlineSliceWithContext(ctx)
+			argv, _ := p.CmdlineSliceWithContext(ctx)
 			matched = MatchAgent(a.Patterns, name, argv)
 		}
-		if matched == "" {
+		if matched == "" || proc() == nil {
 			continue
 		}
-		ppid, _ := p.PpidWithContext(ctx)
-		hits[p.Pid] = hit{p, matched, ppid}
+		ppid := e.ppid
+		if ppid < 0 {
+			ppid, _ = p.PpidWithContext(ctx)
+		}
+		hits[e.pid] = hit{p, matched, ppid}
 	}
 	now := time.Now
 	if a.Now != nil {
@@ -153,6 +235,7 @@ func (a *Agents) Collect(ctx context.Context) (Snapshot, error) {
 		dir = claudeDir()
 	}
 	cpuNow := map[int32]cpuSample{}
+	places := map[string]place{}
 	// Sub-processes of an agent (tool runners, sub-agents) are part of the
 	// parent session, not sessions of their own.
 	type candidate struct {
@@ -191,7 +274,7 @@ func (a *Agents) Collect(ctx context.Context) (Snapshot, error) {
 			cpuNow[c.pid] = sample
 		}
 		if info.Cwd != "" {
-			ag.Branch, ag.Worktree = gitPlace(ctx, info.Cwd)
+			ag.Branch, ag.Worktree = a.place(ctx, info.Cwd, now(), places)
 			if path := findTranscript(transcriptDir(dir, info.Cwd), info.Cmdline, info.Started, claimed); path != "" {
 				claimed[path] = true
 				if p, ok := a.sessions.read(path); ok {
@@ -202,7 +285,7 @@ func (a *Agents) Collect(ctx context.Context) (Snapshot, error) {
 		}
 		agents = append(agents, ag)
 	}
-	a.cpu = cpuNow
+	a.cpu, a.places = cpuNow, places
 	sort.Slice(agents, func(i, j int) bool {
 		if !agents[i].Started.Equal(agents[j].Started) {
 			return agents[i].Started.Before(agents[j].Started)

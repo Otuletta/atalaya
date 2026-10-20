@@ -4,8 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -73,9 +78,37 @@ const maxFiles = 200
 var gitEnv = []string{"GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"}
 
 // Git reads the local state of every project with a path.
+//
+// Each git process costs about 8 ms just to start, so it runs as few as it
+// can: `git status` every poll, the last commit only when HEAD moved, the
+// worktree list only when git's worktrees folder changed. A repo that has
+// not changed for idleAfter is read every idleEvery instead of every poll,
+// unless git's own files show it moved (a commit, a checkout, git add, a
+// pull, a fetch): what goes stale is at most an edit made idleEvery ago.
 type Git struct {
 	Projects []config.Project
 	Every    time.Duration
+	Now      func() time.Time // for tests
+
+	mu    sync.Mutex
+	cache map[string]*repoCache // by path
+}
+
+const (
+	idleAfter = 2 * time.Minute
+	idleEvery = 15 * time.Second
+)
+
+// repoCache is what the last look at a repo found.
+type repoCache struct {
+	repo      Repo
+	meta      string // git's own files, when they were read
+	readAt    time.Time
+	changedAt time.Time // when its state last changed
+	oid       string    // HEAD, which decides the last commit
+	commit    *Commit
+	wtStamp   string // git's worktrees folder, which decides the worktree list
+	worktrees []Worktree
 }
 
 func (g *Git) Name() string            { return "git" }
@@ -91,9 +124,13 @@ func (g *Git) Collect(ctx context.Context) (Snapshot, error) {
 	repos := make([]Repo, len(projects))
 	eg, gctx := errgroup.WithContext(ctx)
 	eg.SetLimit(8)
+	now := time.Now()
+	if g.Now != nil {
+		now = g.Now()
+	}
 	for i, p := range projects {
 		eg.Go(func() error {
-			repos[i] = repoStatus(gctx, p)
+			repos[i] = g.repo(gctx, p, now)
 			return nil
 		})
 	}
@@ -104,9 +141,127 @@ func (g *Git) Collect(ctx context.Context) (Snapshot, error) {
 	return GitSnapshot{Repos: repos}, nil
 }
 
+// repo reads one repo, or returns the last look when it is idle and git's
+// files did not move.
+func (g *Git) repo(ctx context.Context, p config.Project, now time.Time) Repo {
+	g.mu.Lock()
+	c := g.cache[p.Path]
+	g.mu.Unlock()
+	dir := gitDir(p.Path)
+	meta := stampGit(dir)
+	if c != nil && meta != "" && meta == c.meta && now.Sub(c.changedAt) >= idleAfter && now.Sub(c.readAt) < idleEvery {
+		return c.repo
+	}
+	next := &repoCache{}
+	if c != nil {
+		*next = *c
+	}
+	r := repoStatus(ctx, p, dir, next)
+	if c == nil || !reflect.DeepEqual(c.repo, r) {
+		next.changedAt = now
+	}
+	next.repo, next.meta, next.readAt = r, meta, now
+	if ctx.Err() == nil {
+		g.mu.Lock()
+		if g.cache == nil {
+			g.cache = map[string]*repoCache{}
+		}
+		g.cache[p.Path] = next
+		g.mu.Unlock()
+	}
+	return r
+}
+
+// gitDir is the repo's git directory: .git, or where a .git file points
+// (a linked worktree, a submodule). Empty when path is not a repo's top.
+func gitDir(path string) string {
+	dot := filepath.Join(path, ".git")
+	info, err := os.Stat(dot)
+	if err != nil {
+		return ""
+	}
+	if info.IsDir() {
+		return dot
+	}
+	b, err := os.ReadFile(dot)
+	if err != nil {
+		return ""
+	}
+	d, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: ")
+	if !ok {
+		return ""
+	}
+	if !filepath.IsAbs(d) {
+		d = filepath.Join(path, d)
+	}
+	return d
+}
+
+// commonDir is where a linked worktree shares refs with its main checkout.
+func commonDir(dir string) string {
+	b, err := os.ReadFile(filepath.Join(dir, "commondir"))
+	if err != nil {
+		return dir
+	}
+	c := strings.TrimSpace(string(b))
+	if !filepath.IsAbs(c) {
+		c = filepath.Join(dir, c)
+	}
+	return c
+}
+
+// stampGit sums up the files git writes when a repo moves: the index (git
+// add, a checkout), HEAD and its log (commits, resets), FETCH_HEAD and the
+// packed refs (fetches, pulls) and the stash. Empty when unknown.
+func stampGit(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	var b strings.Builder
+	stat := func(path string) {
+		if info, err := os.Stat(path); err == nil {
+			fmt.Fprintf(&b, "%d.%d;", info.Size(), info.ModTime().UnixNano())
+		} else {
+			b.WriteString("-;")
+		}
+	}
+	for _, f := range []string{"index", "HEAD", "logs/HEAD"} {
+		stat(filepath.Join(dir, f))
+	}
+	common := commonDir(dir)
+	for _, f := range []string{"FETCH_HEAD", "packed-refs", "logs/refs/stash", "refs/stash"} {
+		stat(filepath.Join(common, f))
+	}
+	return b.String()
+}
+
+// stampWorktrees sums up git's worktrees folder: one entry per linked
+// worktree, whose HEAD names its branch. Empty when unknown.
+func stampWorktrees(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	wt := filepath.Join(commonDir(dir), "worktrees")
+	entries, err := os.ReadDir(wt)
+	if os.IsNotExist(err) {
+		return "none"
+	}
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		if info, err := os.Stat(filepath.Join(wt, e.Name(), "HEAD")); err == nil {
+			fmt.Fprintf(&b, "%s:%d;", e.Name(), info.ModTime().UnixNano())
+		}
+	}
+	return b.String()
+}
+
 // repoStatus never fails as a whole: errors are per repo, so one broken
-// checkout does not hide the others.
-func repoStatus(ctx context.Context, p config.Project) Repo {
+// checkout does not hide the others. It reuses from c what has not
+// changed, and records there what it read.
+func repoStatus(ctx context.Context, p config.Project, dir string, c *repoCache) Repo {
 	r := Repo{Project: p.Name, Path: p.Path}
 	out, err := run(ctx, gitEnv, "git", "-C", p.Path, "status", "--porcelain=v2", "--branch", "--show-stash", "-z")
 	if err != nil {
@@ -134,15 +289,23 @@ func repoStatus(ctx context.Context, p config.Project) Repo {
 	if r.Detached && len(st.OID) >= 7 {
 		r.Branch = st.OID[:7]
 	}
-	if out, err := run(ctx, gitEnv, "git", "-C", p.Path, "worktree", "list", "--porcelain", "-z"); err == nil {
+	if wt := stampWorktrees(dir); wt != "" && wt == c.wtStamp {
+		r.Worktrees = c.worktrees
+	} else if out, err := run(ctx, gitEnv, "git", "-C", p.Path, "worktree", "list", "--porcelain", "-z"); err == nil {
 		r.Worktrees = parseWorktrees(out)
+		c.wtStamp, c.worktrees = wt, r.Worktrees
 	}
-	if !st.Initial {
-		c, err := lastCommit(ctx, p.Path)
+	switch {
+	case st.Initial:
+	case st.OID != "" && st.OID == c.oid && c.commit != nil:
+		r.LastCommit = c.commit
+	default:
+		commit, err := lastCommit(ctx, p.Path)
 		if err != nil {
 			r.Err = err.Error()
 		}
-		r.LastCommit = c
+		r.LastCommit = commit
+		c.oid, c.commit = st.OID, commit
 	}
 	return r
 }
