@@ -1,8 +1,12 @@
 ◆ 0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●3 ◉1 6 Actividad  7 Plugins ✗1    12:00:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  AGENTE  PROYECTO  RAMA            ESTADO        ACTIVIDAD                                                  CPU   DESDE
-› claude  odomto    feat/sparkline  ⟳ trabajando  editando model.go · Sparkline de latencia                  31%   2h13m
-  claude  kdx       ⎇ passkeys      ◉ te espera   Login con passkeys                                          0%  40m00s
+  COSTE ≈ API  hoy $37.65 · 113.7M tokens   7 días $153.65  ▃▆▂▁█▅▇                                                     
+    odomto         ████████████████████ $120.50                                                                         
+    kdx            █████░░░░░░░░░░░░░░░ $33.20                                                                          
+                                                                                                                        
+  AGENTE  PROYECTO  RAMA            ESTADO        ACTIVIDAD                              TOKENS  ≈ $ SESIÓN  CPU   DESDE
+› claude  odomto    feat/sparkline  ⟳ trabajando  editando model.go · Sparkline de lat…   12.4M      $18.30  31%   2h13m
+  claude  kdx       ⎇ passkeys      ◉ te espera   Login con passkeys                       3.1M       $4.10   0%  40m00s
   cline   —                         —             /tmp/scratch                                                0%   1m30s
 
 
@@ -22,9 +26,5 @@
 
 
 
-
-
-
-
-agents ahora                                                                                                            
+agents ahora · usage ahora                                                                                              
 tab panel · j/↓ navegar · / filtrar · enter detalle · o abrir · p pull · x matar · r refrescar · ? ayuda · q salir      

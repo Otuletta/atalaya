@@ -99,6 +99,7 @@ type Intervals struct {
 	Health Duration `toml:"health"`
 	Ports  Duration `toml:"ports"`
 	Agents Duration `toml:"agents"`
+	Usage  Duration `toml:"usage"`
 	Docker Duration `toml:"docker"`
 	Ollama Duration `toml:"ollama"`
 }
@@ -148,6 +149,7 @@ var defaultIntervals = Intervals{
 	Health: Duration{30 * time.Second},
 	Ports:  Duration{3 * time.Second},
 	Agents: Duration{5 * time.Second},
+	Usage:  Duration{time.Minute},
 	Docker: Duration{10 * time.Second},
 	Ollama: Duration{10 * time.Second},
 }
@@ -271,6 +273,7 @@ func (c *Config) applyDefaults() {
 		{&d.Health, &defaultIntervals.Health},
 		{&d.Ports, &defaultIntervals.Ports},
 		{&d.Agents, &defaultIntervals.Agents},
+		{&d.Usage, &defaultIntervals.Usage},
 		{&d.Docker, &defaultIntervals.Docker},
 		{&d.Ollama, &defaultIntervals.Ollama},
 	} {
@@ -348,7 +351,7 @@ func (c *Config) Validate() error {
 	d := c.Intervals
 	for name, v := range map[string]Duration{
 		"git": d.Git, "fetch": d.Fetch, "github": d.GitHub, "health": d.Health,
-		"ports": d.Ports, "agents": d.Agents, "docker": d.Docker, "ollama": d.Ollama,
+		"ports": d.Ports, "agents": d.Agents, "usage": d.Usage, "docker": d.Docker, "ollama": d.Ollama,
 	} {
 		if v.Duration < time.Second {
 			errs = append(errs, fmt.Errorf("intervals.%s: must be at least 1s, got %s", name, v))

@@ -15,7 +15,7 @@ Sustituye el ritual de abrir GitHub, revisar el CI, comprobar que producción re
 | **2 GitHub** | Último run de CI por repo (✓ ✗ ⟳ con duración), el CI y el PR de **la rama en la que estás trabajando**, PRs abiertos con el estado de sus checks, PRs donde te piden review (◉) y checks fallidos. Los PRs de bots (dependabot, renovate…) se agrupan en una fila por bot. |
 | **3 Producción** | Health checks HTTP: código, latencia, **uptime de 24 h y p95**, sparkline y **días restantes del certificado TLS**. El historial se guarda: el detalle tiene uptime de 7 días e incidentes. |
 | **4 Local** | Puertos en escucha mapeados a proceso y proyecto (`:3000 → node · odomto`), contenedores Docker y modelos cargados en Ollama. |
-| **5 Agentes** | Sesiones de Claude Code o Cline: repo, rama o worktree (⎇), CPU y, leyendo la transcripción de Claude Code, **qué está haciendo** («editando model.go», «Bash: go test») o si **te espera** (◉) o parece atascada en un permiso (⏸). Los worktrees de cada repo se ven en su detalle. |
+| **5 Agentes** | Sesiones de Claude Code o Cline: repo, rama o worktree (⎇), CPU y, leyendo la transcripción de Claude Code, **qué está haciendo** («editando model.go», «Bash: go test») o si **te espera** (◉) o parece atascada en un permiso (⏸). Encima, **cuánto cuestan**: tokens y coste equivalente en la API por sesión, por proyecto y por día (7 días). Los worktrees de cada repo se ven en su detalle. |
 | **6 Actividad** | La memoria de la torre: CI rotos y arreglados, caídas y recuperaciones, reviews que te piden, PRs nuevos y cerrados, agentes que empiezan, terminan o te esperan. La pestaña cuenta lo que no has visto. |
 | **7 Plugins** | Tus propias fuentes: cualquier programa que imprima una tabla en JSON. Vienen tres de ejemplo: disco, Homebrew y `npm audit` por proyecto. |
 
@@ -158,6 +158,7 @@ github = "60s"
 health = "30s"
 ports = "3s"
 agents = "5s"
+usage = "60s"
 docker = "10s"
 ollama = "10s"
 ```
@@ -196,6 +197,7 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 - **Un store, muchas pantallas.** El store admite varios suscriptores, cada uno con su propia señal: la TUI local, el detector de eventos y cada sesión SSH leen el mismo estado sin robarse avisos, y al desconectar la sesión se da de baja.
 - **Cada cambio es un evento.** El detector (`internal/notify`) es un lector más del store: compara cada estado con el anterior y produce eventos, que van al log de actividad (siempre) y a una notificación (si `[notify]` lo pide). El primer estado visto es la línea base, así que arrancar nunca «descubre» lo que ya era así. En macOS el texto viaja a `osascript` como argumento, nunca dentro del código AppleScript, así que unas comillas en el título de un PR no pueden romperlo.
 - **Agentes por su transcripción.** Claude Code guarda cada sesión en `~/.claude/projects/<carpeta>/<id>.jsonl`. Atalaya empareja cada proceso con la suya (por `--resume=<id>` o la más reciente de su carpeta), lee solo los últimos 512 KB, cachea por tamaño y fecha, y deduce el estado del último mensaje: turno terminado → te espera; herramienta pendiente sin actividad ni CPU durante 30 s → probablemente un permiso. El formato es interno de Claude Code, así que todo vive en `collector/sessions.go` y, si cambia, el panel simplemente no muestra sesión.
+- **Coste leído de forma incremental.** Las transcripciones pueden sumar gigabytes (1,7 GB en una semana real). El collector de uso solo lee los bytes nuevos de cada archivo, busca el bloque `usage` sin decodificar la línea entera, cuenta cada mensaje una vez (Claude Code escribe un mensaje con varios bloques en varias líneas con el mismo id) y guarda su progreso en `usage.json`: la primera lectura de 1,7 GB tarda ~1 s y las siguientes, menos de un milisegundo. Los precios son los publicados por Anthropic (octubre de 2026); con una suscripción a Claude Code no pagas por token, así que es el *equivalente* en la API.
 - **Menos sondeo sin foco.** La TUI pide a la terminal los eventos de foco. Mientras está en segundo plano, git, puertos, agentes, Docker y Ollama se consultan 5 veces menos; GitHub y health mantienen el ritmo porque alimentan las notificaciones. Al volver, todo se refresca al instante.
 - **CI honesto.** Se toma el último run de *cada* workflow y se muestra el más grave, así un "Dependabot Updates" verde no tapa un CI roto. Los runs programados antiguos sobre el mismo commit se ignoran.
 

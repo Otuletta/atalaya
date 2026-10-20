@@ -183,6 +183,11 @@ func collectors(cfg *config.Config, withFetch bool, stateDir string) []collector
 		&collector.Ollama{Host: cfg.OllamaHost, Every: iv.Ollama.Duration},
 		&collector.Agents{Projects: cfg.Projects, Patterns: cfg.Agents.Patterns, Every: iv.Agents.Duration},
 	}
+	usage := &collector.Usage{Projects: cfg.Projects, Every: iv.Usage.Duration}
+	if stateDir != "" {
+		usage.StatePath = filepath.Join(stateDir, "usage.json")
+	}
+	cs = append(cs, usage)
 	for _, p := range cfg.Plugins {
 		cs = append(cs, &collector.Plugin{Plugin: p, Projects: cfg.Projects})
 	}

@@ -379,6 +379,9 @@ func (m Model) agentsCard() card {
 	if waiting, blocked := agentAttention(snap); waiting+blocked > 0 {
 		head += sYellow.Render(" · " + plural(waiting+blocked, "te espera", "te esperan"))
 	}
+	if u, ok := store.Data[collector.UsageSnapshot](m.state, "usage"); ok {
+		head += sDim.Render(" · hoy ") + money(u.Today.CostUSD)
+	}
 	c.lines = append(c.lines, head)
 	// Agents that need you first, then the ones working.
 	agents := slices.Clone(snap.Agents)

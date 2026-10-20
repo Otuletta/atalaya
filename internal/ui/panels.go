@@ -36,7 +36,7 @@ var panelNames = [panelCount]string{"Resumen", "Repos", "GitHub", "Producción",
 // panelSources are the collectors each panel reads, for its status line.
 var panelSources = [panelCount][]string{
 	nil, // the overview reports every source with an error
-	{"git", "fetch"}, {"github"}, {"health"}, {"ports", "docker", "ollama"}, {"agents"}, {"events"},
+	{"git", "fetch"}, {"github"}, {"health"}, {"ports", "docker", "ollama"}, {"agents", "usage"}, {"events"},
 	nil, // plugins: one source per configured plugin, see Model.sources
 }
 
@@ -704,18 +704,28 @@ func (m Model) agentsPanel() panelView {
 		{title: "RAMA", max: 24, min: 8, hideEmpty: true, drop: 2},
 		{title: "ESTADO"},
 		{title: "ACTIVIDAD", flex: true, min: 16},
+		{title: "TOKENS", right: true, hideEmpty: true, drop: 3},
+		{title: "≈ $ SESIÓN", right: true, hideEmpty: true}, // lifetime, not the 7-day block
 		{title: "CPU", right: true, drop: 1},
 		{title: "DESDE", right: true},
 	}}
 	var pv panelView
+	usage, hasUsage := store.Data[collector.UsageSnapshot](m.state, "usage")
+	if hasUsage {
+		pv.rows = append(pv.rows, m.usageRows(usage)...)
+	}
 	snap, ok := store.Data[collector.AgentsSnapshot](m.state, "agents")
-	if !ok {
-		pv.empty = m.loading("agents")
+	switch {
+	case !ok:
+		pv.rows = append(pv.rows, row{line: m.loading("agents")})
+		return pv
+	case len(snap.Agents) == 0:
+		pv.rows = append(pv.rows, row{line: sDim.Render("No hay agentes corriendo (patrones: " + strings.Join(m.deps.Config.Agents.Patterns, ", ") + ").")})
 		return pv
 	}
-	if len(snap.Agents) == 0 {
-		pv.empty = sDim.Render("No hay agentes corriendo (patrones: " + strings.Join(m.deps.Config.Agents.Patterns, ", ") + ").")
-		return pv
+	bySession := map[string]collector.SessionUsage{}
+	for _, su := range usage.Sessions {
+		bySession[su.ID] = su
 	}
 	var agents []collector.Agent
 	for _, a := range snap.Agents {
@@ -730,16 +740,92 @@ func (m Model) agentsPanel() panelView {
 		if a.Project != "" {
 			project = sCyan.Render(a.Project)
 		}
+		tokens, cost := "", ""
+		if a.Session != nil {
+			if su, ok := bySession[a.Session.ID]; ok {
+				tokens, cost = sDim.Render(tokenCount(su.Tokens.Total())), money(su.CostUSD)
+			}
+		}
 		t.add(sBold.Render(a.Name), project, placeCell(a), sessionState(a.Session), activityCell(a),
-			sDim.Render(fmt.Sprintf("%.0f%%", a.CPU)), dur(m.now.Sub(a.Started)))
+			tokens, cost, sDim.Render(fmt.Sprintf("%.0f%%", a.CPU)), dur(m.now.Sub(a.Started)))
 		agents = append(agents, a)
 	}
 	ws := t.layout(m.contentWidth())
-	pv.header = t.header(ws)
+	pv.rows = append(pv.rows, row{line: t.header(ws)})
 	for i, l := range t.lines(ws) {
 		pv.rows = append(pv.rows, row{key: fmt.Sprintf("agent:%d", agents[i].PID), selectable: true, item: agents[i], line: l})
 	}
 	return pv
+}
+
+// usageRows is the spend block on top of the Agents panel: today, the
+// last days as bars, and the projects that cost the most.
+func (m Model) usageRows(u collector.UsageSnapshot) []row {
+	var costs []float64
+	var week float64
+	for _, d := range u.Days {
+		costs = append(costs, d.CostUSD)
+		week += d.CostUSD
+	}
+	head := sSection.Render("COSTE ≈ API") + "  hoy " + sBold.Render(money(u.Today.CostUSD)) +
+		sDim.Render(" · "+tokenCount(u.Today.Tokens.Total())+" tokens") +
+		"   " + fmt.Sprint(len(u.Days)) + " días " + sBold.Render(money(week)) + "  " + sMagenta.Render(bars(costs))
+	rows := []row{{line: fit(head, m.contentWidth())}}
+	top := u.Projects
+	if len(top) > 4 {
+		top = top[:4]
+	}
+	maxCost := 0.0
+	for _, p := range top {
+		maxCost = max(maxCost, p.CostUSD)
+	}
+	for _, p := range top {
+		width := 0
+		if maxCost > 0 {
+			width = int(p.CostUSD / maxCost * 20)
+		}
+		bar := sMagenta.Render(strings.Repeat("█", max(width, 1))) + sDim.Render(strings.Repeat("░", 20-max(width, 1)))
+		rows = append(rows, row{line: fit(fmt.Sprintf("  %s %s %s", fit(sCyan.Render(p.Project), 14), bar, money(p.CostUSD)), m.contentWidth())})
+	}
+	return append(rows, row{line: ""})
+}
+
+// money is "$41.20" ("$0.04" for small amounts).
+func money(usd float64) string {
+	if usd >= 1000 {
+		return fmt.Sprintf("$%.0f", usd)
+	}
+	return fmt.Sprintf("$%.2f", usd)
+}
+
+// tokenCount is "1.2M", "450k" or "980".
+func tokenCount(n int64) string {
+	switch {
+	case n >= 1_000_000_000:
+		return fmt.Sprintf("%.1fB", float64(n)/1e9)
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 1_000:
+		return fmt.Sprintf("%.0fk", float64(n)/1e3)
+	}
+	return fmt.Sprint(n)
+}
+
+// bars draws values as block heights relative to the largest.
+func bars(values []float64) string {
+	hi := 0.0
+	for _, v := range values {
+		hi = max(hi, v)
+	}
+	var b strings.Builder
+	for _, v := range values {
+		i := 0
+		if hi > 0 {
+			i = int(v / hi * float64(len(sparkBlocks)-1))
+		}
+		b.WriteRune(sparkBlocks[i])
+	}
+	return b.String()
 }
 
 // placeCell is the branch, or "⎇ name" when the agent works in a linked

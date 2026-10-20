@@ -48,6 +48,7 @@ func Collectors(start time.Time) []collector.Collector {
 		&fake{name: "docker", every: 10 * time.Second, fn: func(time.Duration) collector.Snapshot { return docker() }},
 		&fake{name: "ollama", every: 10 * time.Second, fn: func(time.Duration) collector.Snapshot { return ollama(start) }},
 		&fake{name: "agents", every: 2 * time.Second, fn: func(el time.Duration) collector.Snapshot { return agents(start, el) }},
+		&fake{name: "usage", every: time.Minute, fn: func(time.Duration) collector.Snapshot { return usage(start) }},
 		&fake{name: collector.PluginSource("npm-audit"), every: time.Hour, fn: func(time.Duration) collector.Snapshot { return npmAudit() }},
 	}
 }
@@ -258,6 +259,31 @@ func agents(start time.Time, el time.Duration) collector.Snapshot {
 				Activity: "Bash: npm install @simplewebauthn/server", LastAt: start.Add(-2 * time.Minute)}},
 		{PID: 52011, Name: "cline", Project: "landing", Cwd: "/demo/landing", Started: start.Add(-8 * time.Minute), Cmdline: "cline"},
 	}}
+}
+
+// usage is a week of Claude Code spend, matching the demo's sessions.
+func usage(start time.Time) collector.Snapshot {
+	u := collector.UsageSnapshot{
+		Projects: []collector.ProjectUsage{
+			{Project: "kdx", Tokens: collector.Tokens{CacheRead: 412_000_000, Output: 2_900_000}, CostUSD: 148.20},
+			{Project: "odomto", Tokens: collector.Tokens{CacheRead: 268_000_000, Output: 1_700_000}, CostUSD: 96.75},
+			{Project: "landing", Tokens: collector.Tokens{CacheRead: 52_000_000, Output: 400_000}, CostUSD: 19.40},
+		},
+		Sessions: []collector.SessionUsage{
+			{ID: "d1", Project: "kdx", Model: "claude-opus-5-5", Messages: 388, CostUSD: 21.60,
+				Tokens: collector.Tokens{Input: 12_000, Output: 340_000, CacheWrite5m: 1_100_000, CacheRead: 14_800_000}},
+			{ID: "d2", Project: "odomto", Model: "claude-opus-5-5", Messages: 612, CostUSD: 34.15,
+				Tokens: collector.Tokens{Input: 20_000, Output: 520_000, CacheWrite5m: 1_900_000, CacheRead: 23_400_000}},
+			{ID: "d3", Project: "kdx", Model: "claude-sonnet-5-5", Messages: 74, CostUSD: 2.85,
+				Tokens: collector.Tokens{Input: 3_000, Output: 61_000, CacheWrite5m: 300_000, CacheRead: 4_100_000}},
+		},
+	}
+	for i, c := range []float64{18.2, 44.9, 31.0, 7.5, 52.3, 38.4, 41.05} {
+		u.Days = append(u.Days, collector.DayUsage{Day: start.AddDate(0, 0, i-6).Format("2006-01-02"), CostUSD: c,
+			Tokens: collector.Tokens{CacheRead: int64(c * 3.4e6), Output: int64(c * 21e3)}})
+	}
+	u.Today = u.Days[len(u.Days)-1]
+	return u
 }
 
 // npmAudit is what examples/plugins/npm-audit.py prints for the demo.

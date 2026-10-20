@@ -58,6 +58,28 @@ func samples(lat ...int64) []collector.Sample {
 	return s
 }
 
+func usageFixture(now time.Time) collector.UsageSnapshot {
+	u := collector.UsageSnapshot{
+		Projects: []collector.ProjectUsage{
+			{Project: "odomto", Tokens: collector.Tokens{CacheRead: 310_000_000, Output: 2_100_000}, CostUSD: 120.5},
+			{Project: "kdx", Tokens: collector.Tokens{CacheRead: 80_000_000, Output: 600_000}, CostUSD: 33.2},
+		},
+		Sessions: []collector.SessionUsage{
+			{ID: "s-777", Project: "odomto", Model: "claude-opus-5-5", Messages: 412, CostUSD: 18.3,
+				Tokens: collector.Tokens{Input: 9_000, Output: 310_000, CacheWrite5m: 900_000, CacheRead: 11_200_000}},
+			{ID: "s-779", Project: "kdx", Model: "claude-opus-5-5", Messages: 96, CostUSD: 4.1,
+				Tokens: collector.Tokens{Output: 80_000, CacheRead: 3_000_000}},
+		},
+	}
+	for i, c := range []float64{12, 30, 8, 0, 41, 25, 37.65} {
+		d := collector.DayUsage{Day: now.AddDate(0, 0, i-6).Format("2006-01-02"), CostUSD: c,
+			Tokens: collector.Tokens{CacheRead: int64(c * 3e6), Output: int64(c * 20e3)}}
+		u.Days = append(u.Days, d)
+	}
+	u.Today = u.Days[len(u.Days)-1]
+	return u
+}
+
 // testStore holds one realistic snapshot of every source.
 func testStore() *store.Store {
 	st := store.New()
@@ -140,6 +162,7 @@ func testStore() *store.Store {
 			Title: "Te piden review en otuletta/odomto", Body: "#41 Revisa el parser · grace", URL: "https://github.com/otuletta/odomto/pull/41"},
 		{At: now.Add(-26 * time.Hour), Kind: "pr_opened", Severity: events.Info, Project: "kdx", Title: "Nuevo PR #7 en kdx", Body: "Login · grace"},
 	}})
+	put("usage", usageFixture(now))
 	put("agents", collector.AgentsSnapshot{Agents: []collector.Agent{
 		{PID: 777, Name: "claude", Project: "odomto", Cwd: "/w/odomto", Branch: "feat/sparkline", CPU: 31,
 			Started: now.Add(-(2*time.Hour + 13*time.Minute)),

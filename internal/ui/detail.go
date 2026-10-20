@@ -294,6 +294,15 @@ func (m Model) detail(item any) string {
 				d.kv("PR", fmt.Sprintf("#%d  %s", s.PRNumber, sDim.Render(s.PRURL)))
 			}
 			d.kv("id", s.ID)
+			if u, ok := m.sessionUsage(s.ID); ok {
+				d.title("Consumo (≈ coste en la API)")
+				d.kv("coste", money(u.CostUSD)+sDim.Render(" · "+u.Model))
+				d.kv("mensajes", u.Messages)
+				d.kv("entrada", tokenCount(u.Tokens.Input))
+				d.kv("salida", tokenCount(u.Tokens.Output))
+				d.kv("caché escrita", tokenCount(u.Tokens.CacheWrite5m+u.Tokens.CacheWrite1h))
+				d.kv("caché leída", tokenCount(u.Tokens.CacheRead))
+			}
 		}
 		d.kv("comando", it.Cmdline)
 		d.title("Acciones")
@@ -338,6 +347,20 @@ func (d *detailBuilder) failedChecks(checks []collector.FailedCheck) {
 	for _, c := range checks {
 		d.line(sRed.Render("✗ "+c.Name) + "  " + sDim.Render(c.URL))
 	}
+}
+
+// sessionUsage is what a Claude Code session has spent, if known.
+func (m Model) sessionUsage(id string) (collector.SessionUsage, bool) {
+	u, ok := store.Data[collector.UsageSnapshot](m.state, "usage")
+	if !ok {
+		return collector.SessionUsage{}, false
+	}
+	for _, s := range u.Sessions {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return collector.SessionUsage{}, false
 }
 
 // agentIn is the agent working inside dir, if any.

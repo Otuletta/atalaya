@@ -9,7 +9,7 @@
 ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ 
 ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ 
 │ 4 Local                             │ │ 5 Agentes ●3 ◉1                     │ │ 6 Actividad                         │ 
-│ 3 puertos · 1 contenedor            │ │ 3 sesiones · 1 te espera            │ │ ✗ CI roto en odomto · hace 2m       │ 
+│ 3 puertos · 1 contenedor            │ │ 3 sesiones · 1 te espera · hoy $37… │ │ ✗ CI roto en odomto · hace 2m       │ 
 │ :3000 → node · odomto               │ │ ◉ te espera kdx Login con passkeys  │ │ ◉ Te piden review en otuletta/odom… │ 
 │ :8080 → kdx-server · kdx            │ │ ⟳ trabajando odomto editando model… │ │ · Nuevo PR #7 en kdx · 18/10 10:00  │ 
 │ :5432 → postgres                    │ │ — — 1m30s                           │ │                                     │ 

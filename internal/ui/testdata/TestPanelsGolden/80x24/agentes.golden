@@ -1,9 +1,13 @@
 ◆ 0  1 ●1 ●1 2 ✗1 ◉2 3 ✗1 4  5 Agentes ●3 ◉1 6  7 ✗1                            
 ────────────────────────────────────────────────────────────────────────────────
-  AGENTE  PROYECTO  RAMA            ESTADO        ACTIVIDAD          CPU   DESDE
-› claude  odomto    feat/sparkline  ⟳ trabajando  editando model.g…  31%   2h13m
-  claude  kdx       ⎇ passkeys      ◉ te espera   Login con passke…   0%  40m00s
-  cline   —                         —             /tmp/scratch        0%   1m30s
+  COSTE ≈ API  hoy $37.65 · 113.7M tokens   7 días $153.65  ▃▆▂▁█▅▇             
+    odomto         ████████████████████ $120.50                                 
+    kdx            █████░░░░░░░░░░░░░░░ $33.20                                  
+                                                                                
+  AGENTE  PROYECTO  ESTADO        ACTIVIDAD              ≈ $ SESIÓN  CPU   DESDE
+› claude  odomto    ⟳ trabajando  editando model.go · …      $18.30  31%   2h13m
+  claude  kdx       ◉ te espera   Login con passkeys          $4.10   0%  40m00s
+  cline   —         —             /tmp/scratch                        0%   1m30s
 
 
 
@@ -16,9 +20,5 @@
 
 
 
-
-
-
-
-agents ahora                                                                    
+agents ahora · usage ahora                                                      
 tab panel · / filtrar · enter detalle · o/p/x acciones · ? ayuda · q salir      
