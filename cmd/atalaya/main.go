@@ -46,6 +46,7 @@ Uso:
   atalaya status [--json]              imprime el estado una vez y sale
   atalaya init [carpeta] [--depth N]   detecta repos y genera la config
   atalaya log [-n 30] [--json]         historial de lo que ha pasado
+  atalaya serve [--addr localhost:2222] el panel por SSH, solo lectura
   atalaya version
 
 La config vive en %s
@@ -114,6 +115,15 @@ func run(args []string, stdout, stderr io.Writer) error {
 			dir = fs.Arg(0)
 		}
 		return initConfig(ctx, *cfgPath, dir, *depth, stdout)
+	case "serve":
+		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		addr := fs.String("addr", "localhost:2222", "dirección SSH; usa :2222 para tu red local")
+		keys := fs.String("authorized-keys", "~/.ssh/authorized_keys", "claves públicas que pueden conectarse")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		return serveCmd(ctx, *cfgPath, *demoMode, *addr, *keys, stdout)
 	case "log":
 		fs := flag.NewFlagSet("log", flag.ContinueOnError)
 		fs.SetOutput(stderr)

@@ -85,6 +85,19 @@ func (s *Store) Subscribe() <-chan struct{} {
 	return ch
 }
 
+// Unsubscribe stops signaling a channel from Subscribe (an SSH session
+// that ended).
+func (s *Store) Unsubscribe(ch <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.subs {
+		if c == ch {
+			s.subs = append(s.subs[:i], s.subs[i+1:]...)
+			return
+		}
+	}
+}
+
 func (s *Store) notify() {
 	s.version++
 	for _, ch := range s.subs {

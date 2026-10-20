@@ -82,6 +82,15 @@ atalaya status --json | jq -r '.state.sources.github.data.repos[] | select(.ci.s
 
 La TUI y `--json` leen el mismo store; la UI solo es una vista más de los datos.
 
+## Atalaya desde otra máquina (SSH)
+
+```bash
+atalaya serve                     # escucha en localhost:2222
+atalaya serve --addr :2222        # en tu red local: ssh -p 2222 tu-mac.local
+```
+
+Cada conexión recibe el panel completo en su terminal, también desde el móvil con cualquier cliente SSH. Todas comparten los mismos collectors (una sola consulta a GitHub para todos) y cada sesión es **de solo lectura**: `o`, `p`, `x`, `a` y `c` se desactivan, porque actuarían en la máquina que sirve. Solo entran las claves de `~/.ssh/authorized_keys` (o el archivo que indiques con `--authorized-keys`); sin ese archivo, `serve` no arranca. La clave del host se genera una vez en la carpeta de estado. Está hecho con [Wish](https://github.com/charmbracelet/wish).
+
 ## Configuración
 
 `~/.config/atalaya/config.toml` (respeta `$XDG_CONFIG_HOME`; otra ruta con `--config`):
@@ -166,6 +175,7 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 - **Git sin efectos secundarios.** `git status --porcelain=v2 -z` con `GIT_OPTIONAL_LOCKS=0`: consultar cada 5 s nunca toma `index.lock` ni choca con tus comandos. El parser propio (`internal/gitparse`) se prueba con fixtures generados desde repos reales en cada estado (renombrado, conflicto, detached, upstream borrado…) y con fuzzing.
 - **El fetch es una fuente aparte.** Así adelante/atrás refleja el remoto y no solo tu último `git fetch`, sin frenar el sondeo de 5 s.
 - **GitHub en una sola query GraphQL**, con un alias por repo (`r0: repository(…)`, `r1: …`) y otro por rama local (`b0: repository(…){ ref(qualifiedName: "refs/heads/…") }`), construida en tiempo de ejecución con `reflect.StructOf`, porque `githubv4` deriva la query de un tipo y el nombre de la rama va en el tag. Cuesta 1 punto de rate limit por minuto. GraphQL no admite peticiones condicionales (ETag), así que el presupuesto se protege leyendo el campo `rateLimit` de la propia respuesta y las cabeceras `Retry-After` y `X-RateLimit-Reset`: el scheduler espera hasta el reset en lugar de insistir.
+- **Un store, muchas pantallas.** El store admite varios suscriptores, cada uno con su propia señal: la TUI local, el detector de eventos y cada sesión SSH leen el mismo estado sin robarse avisos, y al desconectar la sesión se da de baja.
 - **Cada cambio es un evento.** El detector compara cada estado con el anterior y produce eventos: van al log de actividad (siempre) y a una notificación (si `[notify]` lo pide). El primer estado visto es la línea base, así que arrancar nunca «descubre» lo que ya era así.
 - **Las notificaciones son un lector más del store** (`internal/notify`): se suscriben como la UI, comparan cada estado con el anterior y solo avisan de transiciones. En macOS el texto viaja a `osascript` como argumento, nunca dentro del código AppleScript, así que unas comillas en el título de un PR no pueden romperlo.
 - **Agentes por su transcripción.** Claude Code guarda cada sesión en `~/.claude/projects/<carpeta>/<id>.jsonl`. Atalaya empareja cada proceso con la suya (por `--resume=<id>` o la más reciente de su carpeta), lee solo los últimos 512 KB, cachea por tamaño y fecha, y deduce el estado del último mensaje: turno terminado → te espera; herramienta pendiente sin actividad ni CPU durante 30 s → probablemente un permiso. El formato es interno de Claude Code, así que todo vive en `collector/sessions.go` y, si cambia, el panel simplemente no muestra sesión.

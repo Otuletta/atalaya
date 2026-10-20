@@ -82,9 +82,11 @@ func (m Model) activityCard() card {
 // overviewCols is how many cards fit side by side.
 func (m Model) overviewCols() int {
 	switch {
-	case m.width >= 120:
+	case m.width >= 150:
+		return 4
+	case m.width >= 100:
 		return 3
-	case m.width >= 80:
+	case m.width >= 60:
 		return 2
 	}
 	return 1
@@ -109,8 +111,13 @@ func (m Model) overviewLines(body int) []string {
 		var boxes []string
 		for i, c := range row {
 			content := c.lines
-			if len(content) > maxLines {
+			switch {
+			case len(content) <= maxLines:
+			case maxLines >= 3:
 				content = append(slices.Clone(content[:maxLines-1]), sDim.Render(fmt.Sprintf("… y %d más", len(c.lines)-maxLines+1)))
+			default:
+				// Too short for a "… y N más" line: show content.
+				content = content[:maxLines]
 			}
 			title := sBold.Render(fmt.Sprintf("%d %s", int(c.panel), panelNames[c.panel]))
 			if b := m.badge(c.panel); b != "" {

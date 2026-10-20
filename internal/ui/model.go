@@ -48,9 +48,15 @@ type Deps struct {
 	Actions Actions
 	// Focus is told when the terminal gains or loses focus, to poll less
 	// while nobody is looking. Terminals without focus reporting never call it.
-	Focus   func(focused bool)
-	Now     func() time.Time
-	Version string
+	Focus func(focused bool)
+	// Changes signals store updates for this UI. Default: Store.Changed().
+	// Each SSH session has its own subscription.
+	Changes <-chan struct{}
+	// ReadOnly disables the action keys (an SSH viewer must not open,
+	// pull or kill things on the machine that serves it).
+	ReadOnly bool
+	Now      func() time.Time
+	Version  string
 }
 
 // Messages.
@@ -151,8 +157,12 @@ func (m Model) waitForState() tea.Cmd {
 	if st == nil {
 		return nil
 	}
+	changes := m.deps.Changes
+	if changes == nil {
+		changes = st.Changed()
+	}
 	return func() tea.Msg {
-		<-st.Changed()
+		<-changes
 		return stateMsg{st.Snapshot()}
 	}
 }
@@ -270,6 +280,9 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.showHelp = false
 		}
 		return m, nil
+	}
+	if m.deps.ReadOnly && key.Matches(msg, k.Open, k.Pull, k.Kill, k.Analyze, k.Fix) {
+		return m, m.statusCmd("solo lectura por SSH: las acciones se hacen en la máquina que ejecuta atalaya")
 	}
 	if key.Matches(msg, k.Quit) {
 		if msg.String() == "q" && m.detailOpen {
@@ -775,6 +788,9 @@ func (m Model) render() string {
 
 func (m Model) tabs() string {
 	clock := sDim.Render(m.now.Format("15:04:05"))
+	if m.deps.ReadOnly {
+		clock = sMagenta.Render("ssh · solo lectura ") + clock
+	}
 	if m.refreshing {
 		clock = sYellow.Render("⟳ ") + clock
 	}

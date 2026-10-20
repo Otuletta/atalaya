@@ -94,6 +94,19 @@ func TestSubscribersAreIndependent(t *testing.T) {
 	}
 }
 
+func TestUnsubscribe(t *testing.T) {
+	s := New()
+	sub := s.Subscribe()
+	s.Unsubscribe(sub)
+	s.Put("a", snap{1}, nil, time.Time{})
+	select {
+	case <-sub:
+		t.Fatal("an unsubscribed channel was signaled")
+	default:
+	}
+	s.Unsubscribe(sub) // twice is harmless
+}
+
 func TestJSON(t *testing.T) {
 	s := New()
 	s.Put("git", snap{3}, nil, time.Time{})
