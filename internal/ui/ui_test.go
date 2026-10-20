@@ -255,10 +255,10 @@ func eachSize(t *testing.T, fn func(t *testing.T, w, h int)) {
 
 func TestPanelsGolden(t *testing.T) {
 	eachSize(t, func(t *testing.T, w, ht int) {
-		for i, name := range []string{"repos", "github", "produccion", "local", "agentes"} {
+		for i, name := range []string{"resumen", "repos", "github", "produccion", "local", "agentes"} {
 			t.Run(name, func(t *testing.T) {
 				h := startSized(t, w, ht)
-				h.keys(string(rune('1' + i)))
+				h.keys(string(rune('0' + i)))
 				golden.RequireEqual(t, []byte(screen(h.final(t))))
 			})
 		}
@@ -276,7 +276,7 @@ func TestHelpGolden(t *testing.T) {
 func TestRepoDetailGolden(t *testing.T) {
 	eachSize(t, func(t *testing.T, w, ht int) {
 		h := startSized(t, w, ht)
-		h.keys("enter")
+		h.keys("1", "enter")
 		m := h.final(t)
 		if !m.detailOpen {
 			t.Fatal("enter did not open the detail")
@@ -321,7 +321,7 @@ func TestNothingOverflows(t *testing.T) {
 
 func TestCommitStaysReadableAt80(t *testing.T) {
 	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
-	m.width, m.height = 80, 24
+	m.width, m.height, m.panel = 80, 24, PanelRepos
 	s := screen(m)
 	// The subject keeps its 24-column minimum: 23 characters and "…".
 	if !strings.Contains(s, "feat: sparkline de late…") {
@@ -334,7 +334,7 @@ func TestCommitStaysReadableAt80(t *testing.T) {
 
 func TestNavigationAndTabs(t *testing.T) {
 	h := start(t)
-	h.keys("j", "j", "j") // stops at the last repo
+	h.keys("1", "j", "j", "j") // stops at the last repo
 	h.keys("k")
 	h.keys("tab", "tab", "tab") // Repos → GitHub → Producción → Local
 	h.keys("j")
@@ -353,7 +353,7 @@ func TestNavigationAndTabs(t *testing.T) {
 
 func TestFilter(t *testing.T) {
 	h := start(t)
-	h.keys("/")
+	h.keys("1", "/")
 	h.tm.Type("cu")
 	h.keys("enter")
 	m := h.final(t)
@@ -366,7 +366,7 @@ func TestFilter(t *testing.T) {
 	}
 
 	h = start(t)
-	h.keys("/")
+	h.keys("1", "/")
 	h.tm.Type("zzz")
 	h.keys("esc")
 	if s := screen(h.final(t)); !strings.Contains(s, "odomto") {
@@ -376,7 +376,7 @@ func TestFilter(t *testing.T) {
 
 func TestPullAsksForConfirmation(t *testing.T) {
 	h := start(t)
-	h.keys("p")
+	h.keys("1", "p")
 	h.waitFor(t, "¿git pull --ff-only en odomto?")
 	h.keys("n")
 	h.waitFor(t, "cancelado")
@@ -410,7 +410,7 @@ func TestKillAsksForConfirmation(t *testing.T) {
 
 func TestKillOnlyOnPorts(t *testing.T) {
 	h := start(t)
-	h.keys("x")
+	h.keys("1", "x")
 	h.waitFor(t, "x solo aplica a puertos")
 	h.final(t)
 	if calls := h.actions.Calls(); len(calls) != 0 {
@@ -420,7 +420,7 @@ func TestKillOnlyOnPorts(t *testing.T) {
 
 func TestOpen(t *testing.T) {
 	h := start(t)
-	h.keys("o") // repo → editor
+	h.keys("1", "o") // repo → editor
 	h.waitCalls(t, 1)
 	h.keys("2", "o") // failing CI → the broken run
 	h.waitCalls(t, 2)
@@ -508,6 +508,79 @@ func TestFocusIsReported(t *testing.T) {
 	}
 	// Without a Focus callback the messages are harmless.
 	New(Deps{Config: testConfig(), Now: func() time.Time { return now }}).Update(tea.BlurMsg{})
+}
+
+func TestOverview(t *testing.T) {
+	h := start(t) // 120 columns: three cards per row
+	s := ""
+	h.waitFor(t, "0 Resumen")
+	h.keys("l", "enter") // second card: GitHub
+	m := h.final(t)
+	if m.panel != PanelGitHub {
+		t.Errorf("enter on the second card opened %v", m.panel)
+	}
+
+	m = New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
+	m.width, m.height = 120, 30
+	s = screen(m)
+	for _, want := range []string{
+		"1 desincronizado · 1 con cambios",            // repos
+		"odomto ✗ CI 3m15s", "◉ #41 Revisa el parser", // github: broken CI and a review waiting
+		"● cue.dev", "timeout", "● api.odomto.com", // health: the down endpoint first
+		":3000 → node · odomto", // local
+		"claude odomto 2h13m",   // agents
+		"fuentes al día",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("overview lacks %q:\n%s", want, s)
+		}
+	}
+	m.moveCard(3) // one row down
+	if m.overviewSel != 3 {
+		t.Errorf("moving a row down from card 0 at 3 columns = %d", m.overviewSel)
+	}
+	m.moveCard(100)
+	if m.overviewSel != len(m.cards())-1 {
+		t.Errorf("selection not clamped: %d", m.overviewSel)
+	}
+}
+
+func TestWindowTitleAndProgress(t *testing.T) {
+	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
+	v := m.View()
+	if v.WindowTitle != "atalaya ✗1 CI · ✗1 prod" {
+		t.Errorf("title = %q", v.WindowTitle)
+	}
+	if v.ProgressBar != nil {
+		t.Error("progress bar shown with every source loaded")
+	}
+
+	st := store.New()
+	st.Put("git", collector.GitSnapshot{}, nil, time.Time{})
+	st.SetRunning("github", true) // registered, not reported yet
+	m = New(Deps{Config: testConfig(), Store: st, Now: func() time.Time { return now }})
+	v = m.View()
+	if v.ProgressBar == nil || v.ProgressBar.Value != 50 {
+		t.Errorf("progress = %+v, want 50%%", v.ProgressBar)
+	}
+	if v.WindowTitle != "atalaya ✓" {
+		t.Errorf("title = %q", v.WindowTitle)
+	}
+}
+
+func TestHyperlinks(t *testing.T) {
+	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
+	m.width, m.height, m.panel = 120, 30, PanelGitHub
+	v := m.View().Content
+	for _, url := range []string{
+		"https://github.com/otuletta/odomto/pull/41",        // PR number
+		"https://github.com/otuletta/odomto/actions/runs/9", // CI run
+		"https://github.com/otuletta/odomto",                // repo name
+	} {
+		if !strings.Contains(v, ansi.SetHyperlink(url)) {
+			t.Errorf("no hyperlink to %s", url)
+		}
+	}
 }
 
 func TestSmallTerminal(t *testing.T) {

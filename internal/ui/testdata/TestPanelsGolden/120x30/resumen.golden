@@ -1,0 +1,30 @@
+◆ ATALAYA  0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2                        12:00:00
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮ 
+│ 1 Repos ●1 ●1                       │ │ 2 GitHub ✗1 ◉2                      │ │ 3 Producción ✗1                     │ 
+│ 1 desincronizado · 1 con cambios    │ │ CI ✓0 ✗1 ⟳1 · 5 PRs                 │ │ 2 endpoints  ✓1 ✗1                  │ 
+│ odomto feat/sparkline ↑2 ↓1 +1 ~2 … │ │ odomto ✗ CI 3m15s                   │ │ ● cue.dev           timeout  ▇█××   │ 
+│ kdx feat/login ✓ ~4                 │ │ ◉ #7 Terraform 2.0 · linus          │ │ ● api.odomto.com    142 ms   █▃▃×▃▃ │ 
+│                                     │ │ ◉ #41 Revisa el parser · grace      │ │                                     │ 
+╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯ 
+╭─────────────────────────────────────╮ ╭─────────────────────────────────────╮                                         
+│ 4 Local                             │ │ 5 Agentes ●2                        │                                         
+│ 3 puertos · 1 contenedor            │ │ 2 sesiones                          │                                         
+│ :3000 → node · odomto               │ │ claude odomto 2h13m                 │                                         
+│ :8080 → kdx-server · kdx            │ │ cline — 1m30s                       │                                         
+│ :5432 → postgres                    │ │                                     │                                         
+│ ollama qwen3:8b                     │ │                                     │                                         
+╰─────────────────────────────────────╯ ╰─────────────────────────────────────╯                                         
+
+
+
+
+
+
+
+
+
+
+
+8 fuentes al día · enter abre una tarjeta                                                                               
+tab panel · j/↓ navegar · / filtrar · enter detalle · o abrir · p pull · x matar · r refrescar · ? ayuda · q salir      

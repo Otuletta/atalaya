@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/url"
 	"os/exec"
 	"slices"
@@ -74,9 +75,10 @@ type Model struct {
 	now           time.Time
 	width, height int
 
-	panel  Panel
-	sel    [panelCount]string // key of the selected row per panel
-	offset [panelCount]int    // first visible row per panel
+	panel       Panel
+	overviewSel int                // selected card on the overview
+	sel         [panelCount]string // key of the selected row per panel
+	offset      [panelCount]int    // first visible row per panel
 
 	filtering  bool
 	showHelp   bool
@@ -251,13 +253,19 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.panel == PanelOverview {
+		if handled, cmd := m.overviewKey(msg); handled {
+			return m, cmd
+		}
+	}
+
 	switch {
 	case key.Matches(msg, k.Next):
 		m.panel = (m.panel + 1) % panelCount
 	case key.Matches(msg, k.Prev):
 		m.panel = (m.panel + panelCount - 1) % panelCount
 	case key.Matches(msg, k.Panel):
-		m.panel = Panel(msg.String()[0] - '1')
+		m.panel = Panel(msg.String()[0] - '0')
 	case key.Matches(msg, k.Up):
 		m.move(-1)
 	case key.Matches(msg, k.Down):
@@ -297,6 +305,33 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.showHelp = true
 	}
 	return m, nil
+}
+
+// overviewKey handles the keys that mean something else on the overview:
+// moving between cards, opening one, and the actions that need an item.
+func (m *Model) overviewKey(msg tea.KeyPressMsg) (bool, tea.Cmd) {
+	k, cols := m.keys, m.overviewCols()
+	switch {
+	case key.Matches(msg, k.Up):
+		m.moveCard(-cols)
+	case key.Matches(msg, k.Down):
+		m.moveCard(cols)
+	case msg.String() == "left" || msg.String() == "h":
+		m.moveCard(-1)
+	case msg.String() == "right" || msg.String() == "l":
+		m.moveCard(1)
+	case key.Matches(msg, k.Top):
+		m.overviewSel = 0
+	case key.Matches(msg, k.Bottom):
+		m.overviewSel = len(m.cards()) - 1
+	case key.Matches(msg, k.Enter):
+		m.panel = m.cards()[m.overviewSel].panel
+	case key.Matches(msg, k.Open, k.Pull, k.Kill):
+		return true, m.statusCmd("abre un panel con enter para actuar sobre un elemento")
+	default:
+		return false, nil
+	}
+	return true, nil
 }
 
 func (m *Model) setStatus(text string, isErr bool) tea.Cmd {
@@ -560,7 +595,10 @@ func (m Model) View() tea.View {
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	v.ReportFocus = true
-	v.WindowTitle = "atalaya"
+	v.WindowTitle = m.windowTitle()
+	if pct, done := m.loadProgress(); !done {
+		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarDefault, pct)
+	}
 	return v
 }
 
@@ -579,6 +617,8 @@ func (m Model) render() string {
 		lines = strings.Split(m.helpView(), "\n")
 	case m.detailOpen:
 		lines = strings.Split(m.viewport.View(), "\n")
+	case m.panel == PanelOverview:
+		lines = m.overviewLines(body)
 	default:
 		lines = m.panelLines(body)
 	}
@@ -621,7 +661,7 @@ func (m Model) tabs() string {
 func (m Model) tabLabels(names bool) string {
 	var b strings.Builder
 	for p := range panelCount {
-		style, label := sTab, fmt.Sprint(p+1)
+		style, label := sTab, fmt.Sprint(int(p))
 		if p == m.panel {
 			style = sTabOn
 		}
@@ -675,6 +715,9 @@ func (m Model) statusLine() string {
 	if f := m.filter.Value(); f != "" {
 		parts = append(parts, sYellow.Render("filtro: "+f))
 	}
+	if m.panel == PanelOverview {
+		return strings.Join(append(parts, m.overviewStatus()), sDim.Render(" · "))
+	}
 	for _, src := range panelSources[m.panel] {
 		e, ok := m.state.Get(src)
 		switch {
@@ -696,6 +739,22 @@ func (m Model) statusLine() string {
 		}
 	}
 	return strings.Join(parts, sDim.Render(" · "))
+}
+
+// overviewStatus names only the failing sources: on the overview, silence
+// means everything is fine.
+func (m Model) overviewStatus() string {
+	names := slices.Sorted(maps.Keys(m.state.Entries))
+	var errs []string
+	for _, n := range names {
+		if e := m.state.Entries[n]; e.Err != "" {
+			errs = append(errs, sRed.Render(n+": "+e.Err))
+		}
+	}
+	if len(errs) == 0 {
+		return sDim.Render(fmt.Sprintf("%d fuentes al día · enter abre una tarjeta", len(names)))
+	}
+	return strings.Join(errs, sDim.Render(" · "))
 }
 
 func (m Model) helpLine() string {

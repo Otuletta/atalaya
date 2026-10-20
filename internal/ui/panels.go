@@ -18,7 +18,8 @@ import (
 type Panel int
 
 const (
-	PanelRepos Panel = iota
+	PanelOverview Panel = iota
+	PanelRepos
 	PanelGitHub
 	PanelHealth
 	PanelLocal
@@ -26,10 +27,11 @@ const (
 	panelCount
 )
 
-var panelNames = [panelCount]string{"Repos", "GitHub", "Producción", "Local", "Agentes"}
+var panelNames = [panelCount]string{"Resumen", "Repos", "GitHub", "Producción", "Local", "Agentes"}
 
 // panelSources are the collectors each panel reads, for its status line.
 var panelSources = [panelCount][]string{
+	nil, // the overview reports every source with an error
 	{"git", "fetch"}, {"github"}, {"health"}, {"ports", "docker", "ollama"}, {"agents"},
 }
 
@@ -328,7 +330,7 @@ func (m Model) branchRow(r collector.GitHubRepo) row {
 	}
 	switch {
 	case b.PRNumber > 0:
-		parts = append(parts, sBlue.Render(fmt.Sprintf("PR #%d", b.PRNumber)))
+		parts = append(parts, link(b.PRURL, sBlue.Render(fmt.Sprintf("PR #%d", b.PRNumber))))
 	case b.Pushed:
 		parts = append(parts, sDim.Render("sin PR"))
 	}
@@ -379,7 +381,7 @@ func ciText(run *collector.CIRun) string {
 	if run.DurationSec > 0 {
 		s += " " + sDim.Render(dur(time.Duration(run.DurationSec)*time.Second))
 	}
-	return s
+	return link(run.URL, s)
 }
 
 // failing reports a broken CI on the default branch or the local one.
@@ -419,7 +421,7 @@ func (m Model) githubCells(r collector.GitHubRepo) []string {
 	if failing(r) {
 		name = sRed.Render(name)
 	}
-	return []string{name, ci, prs, review, strings.Join(fails, sDim.Render(" · "))}
+	return []string{link(r.URL, name), ci, prs, review, strings.Join(fails, sDim.Render(" · "))}
 }
 
 // prRow is a PR under its repo. showRepo names the repo, for PRs listed
@@ -437,7 +439,7 @@ func (m Model) prRow(pr collector.PullRequest, requested, showRepo bool) row {
 	if showRepo {
 		meta = " · " + pr.Repo + meta
 	}
-	l := fmt.Sprintf("   %s%s %s %s%s", mark, ciIcon(pr.Checks), sBlue.Render(fmt.Sprintf("#%d", pr.Number)), title, sDim.Render(meta))
+	l := fmt.Sprintf("   %s%s %s %s%s", mark, ciIcon(pr.Checks), link(pr.URL, sBlue.Render(fmt.Sprintf("#%d", pr.Number))), title, sDim.Render(meta))
 	return row{key: "pr:" + pr.URL, selectable: true, item: pr, line: fit(l, m.contentWidth())}
 }
 
@@ -487,7 +489,7 @@ func (m Model) healthPanel() panelView {
 }
 
 func healthCells(c collector.Check) []string {
-	endpoint := c.URL
+	endpoint := link(c.URL, c.URL)
 	status := sGreen.Render(fmt.Sprintf("● %d", c.Status))
 	if !c.OK {
 		if c.Status > 0 {
@@ -572,7 +574,7 @@ func (m Model) localPanel() panelView {
 			if p.Project != "" {
 				project = sCyan.Render(p.Project)
 			}
-			t.add(sBold.Render(fmt.Sprintf(":%d", p.Port)), "→ "+p.Process, sDim.Render(fmt.Sprint(p.PID)),
+			t.add(link(fmt.Sprintf("http://localhost:%d", p.Port), sBold.Render(fmt.Sprintf(":%d", p.Port))), "→ "+p.Process, sDim.Render(fmt.Sprint(p.PID)),
 				project, sDim.Render(config.ContractHome(p.Cwd)))
 			keys = append(keys, fmt.Sprintf("port:%d:%d", p.Port, p.PID))
 			items = append(items, p)

@@ -10,11 +10,14 @@ Sustituye el ritual de abrir GitHub, revisar el CI, comprobar que producción re
 
 | Panel | Contenido |
 |---|---|
+| **0 Resumen** | La pantalla de inicio: una tarjeta por fuente con solo lo que necesita atención. `enter` abre el panel de la tarjeta. |
 | **1 Repos** | Rama, commits adelante/atrás del remoto, cambios (staged, modificados, sin seguimiento, conflictos), stash y último commit. **Amarillo**: trabajo sin commitear. **Rojo**: desincronizado. |
 | **2 GitHub** | Último run de CI por repo (✓ ✗ ⟳ con duración), el CI y el PR de **la rama en la que estás trabajando**, PRs abiertos con el estado de sus checks, PRs donde te piden review (◉) y checks fallidos. Los PRs de bots (dependabot, renovate…) se agrupan en una fila por bot. |
 | **3 Producción** | Health checks HTTP: código, latencia, sparkline de los últimos minutos y **días restantes del certificado TLS**. |
 | **4 Local** | Puertos en escucha mapeados a proceso y proyecto (`:3000 → node · odomto`), contenedores Docker y modelos cargados en Ollama. |
 | **5 Agentes** | Sesiones de Claude Code o Cline corriendo: en qué repo y desde hace cuánto. |
+
+**Detalles de terminal moderna.** Los números de PR, los runs de CI, los endpoints y los puertos son enlaces clicables (OSC 8, cmd+clic en iTerm2, Ghostty, WezTerm…). La pestaña de la terminal muestra el estado (`atalaya ✗2 CI · ✗1 prod`) aunque esté en segundo plano, y mientras carga o refresca aparece la barra de progreso nativa de la terminal.
 
 **Notificaciones.** Con Atalaya abierto aunque esté en segundo plano, recibes una notificación del sistema cuando un CI se rompe o se arregla (en la rama por defecto o en la tuya) y cuando un endpoint se cae o se recupera. Solo se avisan los *cambios*: nada al arrancar por lo que ya estaba roto, nada repetido, y un endpoint no cuenta como caído hasta fallar dos veces seguidas.
 
@@ -46,7 +49,7 @@ atalaya --demo               # o pruébalo con datos simulados, sin config
 
 | Tecla | Acción |
 |---|---|
-| `tab` / `shift+tab` / `1-5` | Cambiar de panel |
+| `tab` / `shift+tab` / `0-5` | Cambiar de panel |
 | `j` `k` o flechas, `g` `G`, `ctrl+u` `ctrl+d` | Navegar |
 | `/` | Filtrar proyectos (`esc` limpia el filtro) |
 | `enter` | Detalle del item: archivos cambiados, PRs, historial de latencia, comando del proceso… |

@@ -1,4 +1,4 @@
-◆ ATALAYA  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2                                   12:00:00
+◆ ATALAYA  0 Resumen  1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2                        12:00:00
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                                                                         
                                                                                                                         
@@ -10,7 +10,7 @@
                     │                                                                             │                     
                     │  tab        siguiente panel         /          filtrar                      │                     
                     │  shift+tab  panel anterior          enter      detalle                      │                     
-                    │  1-5        ir al panel             esc        volver / limpiar filtro      │                     
+                    │  0-5        ir al panel             esc        volver / limpiar filtro      │                     
                     │  k/↑        subir                   o          abrir en editor / navegador  │                     
                     │  j/↓        bajar                   p          git pull                     │                     
                     │  g          inicio                  x          matar proceso del puerto     │                     
@@ -26,5 +26,5 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
-git ahora · fetch ahora                                                                                                 
+8 fuentes al día · enter abre una tarjeta                                                                               
 tab panel · j/↓ navegar · / filtrar · enter detalle · o abrir · p pull · x matar · r refrescar · ? ayuda · q salir      

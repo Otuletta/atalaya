@@ -14,7 +14,7 @@ func Summary(cfg *config.Config, st store.State, now time.Time, width int) strin
 	m := New(Deps{Config: cfg, Now: func() time.Time { return now }})
 	m.state, m.width = st, width
 	var b strings.Builder
-	for p := range panelCount {
+	for p := PanelRepos; p < panelCount; p++ {
 		pv := m.build(p)
 		b.WriteString(sSection.Render(strings.ToUpper(panelNames[p])) + m.badge(p) + "\n")
 		if len(pv.rows) == 0 {
