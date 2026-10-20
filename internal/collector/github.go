@@ -61,6 +61,20 @@ type PullRequest struct {
 	ReviewDecision string `json:"review_decision,omitempty"`
 }
 
+// BranchCI is the state on GitHub of the branch checked out locally, when it
+// is not the default branch: that is usually the work in progress.
+type BranchCI struct {
+	Name string `json:"name"`
+	// Pushed is false when the branch does not exist on GitHub yet.
+	Pushed       bool          `json:"pushed"`
+	CI           *CIRun        `json:"ci,omitempty"`
+	FailedChecks []FailedCheck `json:"failed_checks,omitempty"`
+	// PR is the open pull request from this branch, if any.
+	PRNumber int    `json:"pr_number,omitempty"`
+	PRURL    string `json:"pr_url,omitempty"`
+	URL      string `json:"url,omitempty"`
+}
+
 // GitHubRepo is the remote state of one project.
 type GitHubRepo struct {
 	Project        string        `json:"project"`
@@ -69,6 +83,7 @@ type GitHubRepo struct {
 	DefaultBranch  string        `json:"default_branch,omitempty"`
 	CI             *CIRun        `json:"ci,omitempty"`
 	FailedChecks   []FailedCheck `json:"failed_checks,omitempty"`
+	Branch         *BranchCI     `json:"branch,omitempty"`
 	OpenPRs        int           `json:"open_prs"`
 	PRs            []PullRequest `json:"prs,omitempty"`
 	ReviewRequests []PullRequest `json:"review_requests,omitempty"`
@@ -119,7 +134,10 @@ type GitHub struct {
 	// Token returns the API token. Defaults to $GH_TOKEN, $GITHUB_TOKEN or
 	// `gh auth token`, so Atalaya never asks for or stores credentials.
 	Token func(ctx context.Context) (string, error)
-	Now   func() time.Time
+	// Branch returns the branch checked out in a project's path ("" when
+	// detached or unknown). Defaults to `git branch --show-current`.
+	Branch func(ctx context.Context, dir string) string
+	Now    func() time.Time
 
 	once      sync.Once
 	transport *ghTransport
@@ -161,18 +179,25 @@ func (g *GitHub) Collect(ctx context.Context) (Snapshot, error) {
 	if len(projects) == 0 {
 		return GitHubSnapshot{}, nil
 	}
-	names := make([]string, len(projects))
-	for i, p := range projects {
-		names[i] = p.GitHub
+	branchOf := g.Branch
+	if branchOf == nil {
+		branchOf = localBranch
 	}
-	q := buildQuery(names)
+	targets := make([]queryTarget, len(projects))
+	for i, p := range projects {
+		targets[i] = queryTarget{repo: p.GitHub}
+		if p.Path != "" {
+			targets[i].branch = branchOf(ctx, p.Path)
+		}
+	}
+	q := buildQuery(targets)
 	err := g.client.Query(ctx, q.Interface(), nil)
 	if err != nil {
 		if rerr := g.transport.classify(err, g.now()); rerr != nil {
 			return nil, rerr
 		}
 	}
-	snap, ok := decodeSnapshot(q.Elem(), projects, g.now())
+	snap, ok := decodeSnapshot(q.Elem(), projects, targets, g.now())
 	if !ok {
 		// Nothing decoded: the error is about the whole query.
 		if err == nil {
@@ -246,25 +271,41 @@ type prNode struct {
 	} `graphql:"commits(last: 1)"`
 }
 
+type commitNode struct {
+	Oid               string
+	StatusCheckRollup *rollupNode
+	CheckSuites       struct {
+		Nodes []suiteNode
+	} `graphql:"checkSuites(last: 20)"`
+}
+
 type repoNode struct {
 	NameWithOwner    string
 	URL              string `graphql:"url"`
 	DefaultBranchRef *struct {
 		Name   string
 		Target struct {
-			Commit struct {
-				Oid               string
-				StatusCheckRollup *rollupNode
-				CheckSuites       struct {
-					Nodes []suiteNode
-				} `graphql:"checkSuites(last: 20)"`
-			} `graphql:"... on Commit"`
+			Commit commitNode `graphql:"... on Commit"`
 		}
 	}
 	PullRequests struct {
 		TotalCount int
 		Nodes      []prNode
 	} `graphql:"pullRequests(states: OPEN, first: 20, orderBy: {field: UPDATED_AT, direction: DESC})"`
+}
+
+// refNode is the local branch's ref; its tag (the branch name) is set per
+// repo when the query is built.
+type refNode struct {
+	Target struct {
+		Commit commitNode `graphql:"... on Commit"`
+	}
+	AssociatedPullRequests struct {
+		Nodes []struct {
+			Number int
+			URL    string `graphql:"url"`
+		}
+	} `graphql:"associatedPullRequests(states: OPEN, first: 1)"`
 }
 
 type searchNode struct {
@@ -282,25 +323,48 @@ func gqlString(s string) string {
 	return string(b)
 }
 
+// queryTarget is one repo to ask about, and the branch checked out locally.
+type queryTarget struct {
+	repo   string
+	branch string
+}
+
 // buildQuery returns a pointer to a struct shaped like
 //
 //	{ viewer{login} rateLimit{…} search(…){…}
-//	  r0: repository(owner:"a", name:"b"){…}  r1: …  }
+//	  r0: repository(owner:"a", name:"b"){…}
+//	  b0: repository(owner:"a", name:"b"){ ref(qualifiedName:"refs/heads/x"){…} }
+//	  r1: …  }
 //
 // githubv4 derives queries from struct types, so a query with one alias per
-// repo needs a type built at runtime. One request covers every repo.
-func buildQuery(repos []string) reflect.Value {
+// repo (and per local branch, whose name goes in the tag) needs types built
+// at runtime. One request covers every repo.
+func buildQuery(targets []queryTarget) reflect.Value {
 	fields := []reflect.StructField{
 		{Name: "Viewer", Type: reflect.TypeFor[struct{ Login string }]()},
 		{Name: "RateLimit", Type: reflect.TypeFor[rateLimitNode]()},
 		{Name: "Search", Type: reflect.TypeFor[searchNode](), Tag: gqlTag(reviewSearch)},
 	}
-	for i, r := range repos {
-		owner, name, _ := strings.Cut(r, "/")
+	for i, t := range targets {
+		owner, name, _ := strings.Cut(t.repo, "/")
+		repo := fmt.Sprintf("repository(owner: %s, name: %s)", gqlString(owner), gqlString(name))
 		fields = append(fields, reflect.StructField{
 			Name: fmt.Sprintf("R%d", i),
 			Type: reflect.TypeFor[*repoNode](),
-			Tag:  gqlTag(fmt.Sprintf("r%d: repository(owner: %s, name: %s)", i, gqlString(owner), gqlString(name))),
+			Tag:  gqlTag(fmt.Sprintf("r%d: %s", i, repo)),
+		})
+		if t.branch == "" {
+			continue
+		}
+		branch := reflect.StructOf([]reflect.StructField{{
+			Name: "Ref",
+			Type: reflect.TypeFor[*refNode](),
+			Tag:  gqlTag("ref(qualifiedName: " + gqlString("refs/heads/"+t.branch) + ")"),
+		}})
+		fields = append(fields, reflect.StructField{
+			Name: fmt.Sprintf("B%d", i),
+			Type: reflect.PointerTo(branch),
+			Tag:  gqlTag(fmt.Sprintf("b%d: %s", i, repo)),
 		})
 	}
 	return reflect.New(reflect.StructOf(fields))
@@ -308,7 +372,7 @@ func buildQuery(repos []string) reflect.Value {
 
 // ---- decoding ----
 
-func decodeSnapshot(v reflect.Value, projects []config.Project, now time.Time) (GitHubSnapshot, bool) {
+func decodeSnapshot(v reflect.Value, projects []config.Project, targets []queryTarget, now time.Time) (GitHubSnapshot, bool) {
 	var snap GitHubSnapshot
 	snap.Viewer = v.FieldByName("Viewer").Field(0).String()
 	rl := v.FieldByName("RateLimit").Interface().(rateLimitNode)
@@ -319,12 +383,15 @@ func decodeSnapshot(v reflect.Value, projects []config.Project, now time.Time) (
 	byRepo := map[string]*GitHubRepo{}
 	for i, p := range projects {
 		gr := GitHubRepo{Project: p.Name, Repo: p.GitHub}
-		node, _ := v.Field(3 + i).Interface().(*repoNode)
+		node, _ := v.FieldByName(fmt.Sprintf("R%d", i)).Interface().(*repoNode)
 		if node == nil {
 			gr.Err = "repo no encontrado o sin acceso"
 		} else {
 			decoded = true
 			fillRepo(&gr, node, now)
+			if b := targets[i].branch; b != "" && b != gr.DefaultBranch {
+				gr.Branch = branchCI(b, gr.URL, v.FieldByName(fmt.Sprintf("B%d", i)), now)
+			}
 		}
 		snap.Repos = append(snap.Repos, gr)
 	}
@@ -376,14 +443,49 @@ func fillRepo(gr *GitHubRepo, n *repoNode, now time.Time) {
 		return
 	}
 	gr.DefaultBranch = n.DefaultBranchRef.Name
-	c := n.DefaultBranchRef.Target.Commit
+	gr.CI, gr.FailedChecks = commitCI(n.DefaultBranchRef.Target.Commit, now)
+}
+
+// commitCI summarizes the checks of a commit; nil when it has none.
+func commitCI(c commitNode, now time.Time) (*CIRun, []FailedCheck) {
 	if c.StatusCheckRollup == nil {
-		return
+		return nil, nil
 	}
 	run := &CIRun{State: normalizeState(c.StatusCheckRollup.State), Commit: shortSHA(c.Oid)}
-	gr.FailedChecks = failedChecks(c.StatusCheckRollup)
 	lastRun(run, c.CheckSuites.Nodes, now)
-	gr.CI = run
+	return run, failedChecks(c.StatusCheckRollup)
+}
+
+// branchCI decodes the bN alias: field is a *struct{ Ref *refNode }.
+func branchCI(name, repoURL string, field reflect.Value, now time.Time) *BranchCI {
+	b := &BranchCI{Name: name}
+	if !field.IsValid() || field.IsNil() {
+		return b
+	}
+	ref, _ := field.Elem().Field(0).Interface().(*refNode)
+	if ref == nil {
+		return b // the branch only exists locally
+	}
+	b.Pushed = true
+	if repoURL != "" {
+		b.URL = repoURL + "/tree/" + name
+	}
+	b.CI, b.FailedChecks = commitCI(ref.Target.Commit, now)
+	if prs := ref.AssociatedPullRequests.Nodes; len(prs) > 0 {
+		b.PRNumber, b.PRURL = prs[0].Number, prs[0].URL
+	}
+	return b
+}
+
+// localBranch is the branch checked out in dir, "" when detached.
+func localBranch(ctx context.Context, dir string) string {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := run(ctx, gitEnv, "git", "-C", dir, "branch", "--show-current")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // lastRun replaces the rollup summary with GitHub Actions data. It takes the

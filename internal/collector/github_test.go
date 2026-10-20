@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -18,7 +19,7 @@ import (
 )
 
 var ghProjects = []config.Project{
-	{Name: "odomto", GitHub: "otuletta/odomto"},
+	{Name: "odomto", GitHub: "otuletta/odomto", Path: "/w/odomto"},
 	{Name: "ghost", GitHub: "otuletta/ghost"},
 	{Name: "local-only", Path: "/tmp/x"},
 }
@@ -35,6 +36,12 @@ func newGitHub(t *testing.T, handler http.HandlerFunc) (*GitHub, *atomic.Int32) 
 		Token: func(context.Context) (string, error) {
 			tokenCalls.Add(1)
 			return "test-token", nil
+		},
+		Branch: func(_ context.Context, dir string) string {
+			if dir == "/w/odomto" {
+				return "feat/sparkline"
+			}
+			return ""
 		},
 		Now: func() time.Time { return now },
 	}, &tokenCalls
@@ -55,6 +62,8 @@ func TestGitHubSingleQuery(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		for _, want := range []string{
 			`r0: repository(owner: "otuletta", name: "odomto")`,
+			`b0: repository(owner: "otuletta", name: "odomto"){ref(qualifiedName: "refs/heads/feat/sparkline")`,
+			`associatedPullRequests(states: OPEN, first: 1)`,
 			`r1: repository(owner: "otuletta", name: "ghost")`,
 			`search(query: "is:open is:pr review-requested:@me archived:false", type: ISSUE, first: 50)`,
 			`rateLimit{limit,remaining,cost,resetAt}`,
@@ -66,6 +75,9 @@ func TestGitHubSingleQuery(t *testing.T) {
 		}
 		if strings.Contains(body.Query, "r2:") {
 			t.Error("a project without github was queried")
+		}
+		if strings.Contains(body.Query, "b1:") {
+			t.Error("a branch was asked for a project without path")
 		}
 		_, _ = w.Write(fixture)
 	})
@@ -104,6 +116,12 @@ func TestGitHubSingleQuery(t *testing.T) {
 	}
 	if r.PRs[0].Checks != CIFailure || r.PRs[1].Checks != "" || !r.PRs[1].Draft || r.PRs[1].Author != "" {
 		t.Errorf("prs = %+v", r.PRs)
+	}
+	// The local branch: still running, with its PR.
+	if b := r.Branch; b == nil || !b.Pushed || b.Name != "feat/sparkline" || b.PRNumber != 42 ||
+		b.CI == nil || b.CI.State != CIPending || b.CI.DurationSec != 120 ||
+		b.URL != "https://github.com/otuletta/odomto/tree/feat/sparkline" {
+		t.Errorf("branch = %+v (ci %+v)", r.Branch, r.Branch.CI)
 	}
 	if r.FailingPRs() != 1 {
 		t.Errorf("FailingPRs = %d", r.FailingPRs())
@@ -167,6 +185,37 @@ func TestLastRun(t *testing.T) {
 			lastRun(&got, tt.suites, now)
 			if got != tt.want {
 				t.Errorf("got %+v\nwant %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGitHubBranch(t *testing.T) {
+	tests := []struct {
+		name, branch, b0 string
+		want             *BranchCI
+	}{
+		{"not on GitHub yet", "wip", `{"ref": null}`, &BranchCI{Name: "wip"}},
+		{"the default branch is not repeated", "main", `{"ref": null}`, nil},
+		{"pushed, no checks and no PR", "docs", `{"ref": {"target": {"oid": "abc"}, "associatedPullRequests": {"nodes": []}}}`,
+			&BranchCI{Name: "docs", Pushed: true, URL: "https://github.com/otuletta/odomto/tree/docs"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g, _ := newGitHub(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, `{"data":{"viewer":{"login":"me"},"rateLimit":{"limit":5000,"remaining":4000,"cost":1},
+					"search":{"nodes":[]},"r0":{"nameWithOwner":"otuletta/odomto","url":"https://github.com/otuletta/odomto",
+					"defaultBranchRef":{"name":"main","target":{"oid":"1"}},"pullRequests":{"totalCount":0,"nodes":[]}},
+					"r1":null,"b0":`+tt.b0+`}}`)
+			})
+			g.Branch = func(context.Context, string) string { return tt.branch }
+			snap, err := g.Collect(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := snap.(GitHubSnapshot).Repos[0].Branch
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("branch = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
@@ -247,13 +296,16 @@ func TestGitHubNetworkError(t *testing.T) {
 }
 
 // TestGitHubLive runs the real query against api.github.com with the gh CLI
-// token. It only runs with ATALAYA_LIVE=owner/repo.
+// token. It only runs with ATALAYA_LIVE=owner/repo (and optionally
+// ATALAYA_LIVE_BRANCH=branch).
 func TestGitHubLive(t *testing.T) {
 	repo := os.Getenv("ATALAYA_LIVE")
 	if repo == "" {
 		t.Skip("set ATALAYA_LIVE=owner/repo to run against GitHub")
 	}
-	g := &GitHub{Projects: []config.Project{{Name: "live", GitHub: repo}}}
+	g := &GitHub{Projects: []config.Project{{Name: "live", GitHub: repo, Path: "/live"}}}
+	// ATALAYA_LIVE_BRANCH=name also asks for that branch's CI and PR.
+	g.Branch = func(context.Context, string) string { return os.Getenv("ATALAYA_LIVE_BRANCH") }
 	snap, err := g.Collect(context.Background())
 	if err != nil {
 		t.Fatal(err)

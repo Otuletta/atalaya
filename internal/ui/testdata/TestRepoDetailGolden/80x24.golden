@@ -2,8 +2,8 @@
 ────────────────────────────────────────────────────────────────────────────────
 odomto                                                                          
   ruta          /w/odomto                                                       
-  rama          main                                                            
-  upstream      origin/main                                                     
+  rama          feat/sparkline                                                  
+  upstream      origin/feat/sparkline                                           
   sincronía     ↑2 ↓1  (2 adelante, 1 atrás)                                    
   último fetch  hace 4m                                                         
   stash         1                                                               

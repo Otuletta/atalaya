@@ -1,22 +1,59 @@
 {
   "data": {
-    "viewer": {"login": "otuletta"},
-    "rateLimit": {"limit": 5000, "remaining": 4990, "cost": 1, "resetAt": "2026-10-19T15:00:00Z"},
+    "viewer": {
+      "login": "otuletta"
+    },
+    "rateLimit": {
+      "limit": 5000,
+      "remaining": 4990,
+      "cost": 1,
+      "resetAt": "2026-10-19T15:00:00Z"
+    },
     "search": {
       "nodes": [
         {
-          "number": 41, "title": "Revisa el nuevo parser", "url": "https://github.com/otuletta/odomto/pull/41",
-          "isDraft": false, "updatedAt": "2026-10-19T09:30:00Z", "headRefName": "parser",
-          "reviewDecision": "REVIEW_REQUIRED", "author": {"login": "colega"},
-          "repository": {"nameWithOwner": "otuletta/odomto"},
-          "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}
+          "number": 41,
+          "title": "Revisa el nuevo parser",
+          "url": "https://github.com/otuletta/odomto/pull/41",
+          "isDraft": false,
+          "updatedAt": "2026-10-19T09:30:00Z",
+          "headRefName": "parser",
+          "reviewDecision": "REVIEW_REQUIRED",
+          "author": {
+            "login": "colega"
+          },
+          "repository": {
+            "nameWithOwner": "otuletta/odomto"
+          },
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "SUCCESS"
+                  }
+                }
+              }
+            ]
+          }
         },
         {
-          "number": 7, "title": "Bump deps", "url": "https://github.com/acme/other/pull/7",
-          "isDraft": false, "updatedAt": "2026-10-18T09:30:00Z", "headRefName": "deps",
-          "reviewDecision": null, "author": {"login": "bot"},
-          "repository": {"nameWithOwner": "acme/other"},
-          "commits": {"nodes": []}
+          "number": 7,
+          "title": "Bump deps",
+          "url": "https://github.com/acme/other/pull/7",
+          "isDraft": false,
+          "updatedAt": "2026-10-18T09:30:00Z",
+          "headRefName": "deps",
+          "reviewDecision": null,
+          "author": {
+            "login": "bot"
+          },
+          "repository": {
+            "nameWithOwner": "acme/other"
+          },
+          "commits": {
+            "nodes": []
+          }
         },
         {}
       ]
@@ -30,44 +67,170 @@
           "oid": "abcdef1234567890",
           "statusCheckRollup": {
             "state": "FAILURE",
-            "contexts": {"nodes": [
-              {"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "detailsUrl": "https://github.com/otuletta/odomto/runs/1"},
-              {"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS", "detailsUrl": "https://github.com/otuletta/odomto/runs/2"},
-              {"__typename": "StatusContext", "context": "vercel", "state": "ERROR", "targetUrl": "https://vercel.com/deploy/1"}
-            ]}
+            "contexts": {
+              "nodes": [
+                {
+                  "__typename": "CheckRun",
+                  "name": "test",
+                  "status": "COMPLETED",
+                  "conclusion": "FAILURE",
+                  "detailsUrl": "https://github.com/otuletta/odomto/runs/1"
+                },
+                {
+                  "__typename": "CheckRun",
+                  "name": "lint",
+                  "status": "COMPLETED",
+                  "conclusion": "SUCCESS",
+                  "detailsUrl": "https://github.com/otuletta/odomto/runs/2"
+                },
+                {
+                  "__typename": "StatusContext",
+                  "context": "vercel",
+                  "state": "ERROR",
+                  "targetUrl": "https://vercel.com/deploy/1"
+                }
+              ]
+            }
           },
-          "checkSuites": {"nodes": [
-            {"status": "QUEUED", "conclusion": null, "createdAt": "2026-10-19T09:00:00Z", "updatedAt": "2026-10-19T09:00:00Z", "workflowRun": null},
-            {"status": "COMPLETED", "conclusion": "SUCCESS", "createdAt": "2026-10-19T10:00:00Z", "updatedAt": "2026-10-19T10:01:00Z",
-             "workflowRun": {"url": "https://github.com/otuletta/odomto/actions/runs/10", "workflow": {"name": "Lint"}}},
-            {"status": "COMPLETED", "conclusion": "FAILURE", "createdAt": "2026-10-19T10:00:05Z", "updatedAt": "2026-10-19T10:03:20Z",
-             "workflowRun": {"url": "https://github.com/otuletta/odomto/actions/runs/11", "workflow": {"name": "Test"}}}
-          ]}
+          "checkSuites": {
+            "nodes": [
+              {
+                "status": "QUEUED",
+                "conclusion": null,
+                "createdAt": "2026-10-19T09:00:00Z",
+                "updatedAt": "2026-10-19T09:00:00Z",
+                "workflowRun": null
+              },
+              {
+                "status": "COMPLETED",
+                "conclusion": "SUCCESS",
+                "createdAt": "2026-10-19T10:00:00Z",
+                "updatedAt": "2026-10-19T10:01:00Z",
+                "workflowRun": {
+                  "url": "https://github.com/otuletta/odomto/actions/runs/10",
+                  "workflow": {
+                    "name": "Lint"
+                  }
+                }
+              },
+              {
+                "status": "COMPLETED",
+                "conclusion": "FAILURE",
+                "createdAt": "2026-10-19T10:00:05Z",
+                "updatedAt": "2026-10-19T10:03:20Z",
+                "workflowRun": {
+                  "url": "https://github.com/otuletta/odomto/actions/runs/11",
+                  "workflow": {
+                    "name": "Test"
+                  }
+                }
+              }
+            ]
+          }
         }
       },
       "pullRequests": {
         "totalCount": 2,
         "nodes": [
           {
-            "number": 42, "title": "feat: sparkline", "url": "https://github.com/otuletta/odomto/pull/42",
-            "isDraft": false, "updatedAt": "2026-10-19T11:00:00Z", "headRefName": "sparkline",
-            "reviewDecision": "APPROVED", "author": {"login": "otuletta"},
-            "repository": {"nameWithOwner": "otuletta/odomto"},
-            "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "FAILURE"}}}]}
+            "number": 42,
+            "title": "feat: sparkline",
+            "url": "https://github.com/otuletta/odomto/pull/42",
+            "isDraft": false,
+            "updatedAt": "2026-10-19T11:00:00Z",
+            "headRefName": "sparkline",
+            "reviewDecision": "APPROVED",
+            "author": {
+              "login": "otuletta"
+            },
+            "repository": {
+              "nameWithOwner": "otuletta/odomto"
+            },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "statusCheckRollup": {
+                      "state": "FAILURE"
+                    }
+                  }
+                }
+              ]
+            }
           },
           {
-            "number": 40, "title": "wip: docs", "url": "https://github.com/otuletta/odomto/pull/40",
-            "isDraft": true, "updatedAt": "2026-10-10T11:00:00Z", "headRefName": "docs",
-            "reviewDecision": null, "author": null,
-            "repository": {"nameWithOwner": "otuletta/odomto"},
-            "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}
+            "number": 40,
+            "title": "wip: docs",
+            "url": "https://github.com/otuletta/odomto/pull/40",
+            "isDraft": true,
+            "updatedAt": "2026-10-10T11:00:00Z",
+            "headRefName": "docs",
+            "reviewDecision": null,
+            "author": null,
+            "repository": {
+              "nameWithOwner": "otuletta/odomto"
+            },
+            "commits": {
+              "nodes": [
+                {
+                  "commit": {
+                    "statusCheckRollup": null
+                  }
+                }
+              ]
+            }
           }
         ]
       }
     },
-    "r1": null
+    "r1": null,
+    "b0": {
+      "ref": {
+        "target": {
+          "oid": "feedbeef00112233",
+          "statusCheckRollup": {
+            "state": "PENDING",
+            "contexts": {
+              "nodes": []
+            }
+          },
+          "checkSuites": {
+            "nodes": [
+              {
+                "status": "IN_PROGRESS",
+                "conclusion": null,
+                "createdAt": "2026-10-19T11:58:00Z",
+                "updatedAt": "2026-10-19T11:59:00Z",
+                "workflowRun": {
+                  "url": "https://github.com/otuletta/odomto/actions/runs/12",
+                  "workflow": {
+                    "name": "CI"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "associatedPullRequests": {
+          "nodes": [
+            {
+              "number": 42,
+              "url": "https://github.com/otuletta/odomto/pull/42"
+            }
+          ]
+        }
+      }
+    }
   },
   "errors": [
-    {"message": "Could not resolve to a Repository with the name 'otuletta/ghost'.", "locations": [{"line": 1, "column": 2}]}
+    {
+      "message": "Could not resolve to a Repository with the name 'otuletta/ghost'.",
+      "locations": [
+        {
+          "line": 1,
+          "column": 2
+        }
+      ]
+    }
   ]
 }

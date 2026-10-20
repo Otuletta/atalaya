@@ -100,6 +100,36 @@ ports = "10ms"
 	}
 }
 
+func TestBotAuthors(t *testing.T) {
+	cfg, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for login, want := range map[string]bool{
+		"dependabot": true, "dependabot[bot]": true, "Renovate": true, "github-actions": true,
+		"some-app[bot]": true, "otuletta": false, "dependabot-fan": false, "": false,
+	} {
+		if got := cfg.IsBot(login); got != want {
+			t.Errorf("IsBot(%q) = %v, want %v", login, got, want)
+		}
+	}
+
+	cfg, err = Parse([]byte("[github]\nbot_authors = [\"mergify\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.IsBot("mergify") || cfg.IsBot("dependabot") {
+		t.Error("bot_authors does not replace the defaults")
+	}
+	if !cfg.IsBot("whatever[bot]") {
+		t.Error("[bot] accounts are always bots")
+	}
+
+	if _, err := Parse([]byte("[github]\nbot_authors = [\"\"]\n")); err == nil || !strings.Contains(err.Error(), "bot_authors") {
+		t.Errorf("empty bot author: err = %v", err)
+	}
+}
+
 func TestUnknownKeys(t *testing.T) {
 	_, err := Parse([]byte("[[project]]\nname = \"x\"\npath = \"/x\"\nhelth = [\"https://x\"]\n"))
 	if err == nil || !strings.Contains(err.Error(), "project.helth") {

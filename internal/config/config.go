@@ -40,6 +40,13 @@ type Ports struct {
 	ShowEphemeral bool `toml:"show_ephemeral"`
 }
 
+// GitHubSettings configures the GitHub panel.
+type GitHubSettings struct {
+	// BotAuthors are grouped into one row per bot instead of one row per
+	// PR, so a pile of dependency bumps does not bury the real work.
+	BotAuthors []string `toml:"bot_authors"`
+}
+
 // Intervals overrides how often each collector runs.
 type Intervals struct {
 	Git    Duration `toml:"git"`
@@ -59,11 +66,12 @@ type Config struct {
 	Editor string `toml:"editor"`
 	// OllamaHost is the Ollama API address. Defaults to $OLLAMA_HOST or
 	// http://localhost:11434.
-	OllamaHost string    `toml:"ollama_host"`
-	Projects   []Project `toml:"project"`
-	Agents     Agents    `toml:"agents"`
-	Ports      Ports     `toml:"ports"`
-	Intervals  Intervals `toml:"intervals"`
+	OllamaHost string         `toml:"ollama_host"`
+	Projects   []Project      `toml:"project"`
+	Agents     Agents         `toml:"agents"`
+	Ports      Ports          `toml:"ports"`
+	GitHub     GitHubSettings `toml:"github"`
+	Intervals  Intervals      `toml:"intervals"`
 
 	// Path is where the config was loaded from.
 	Path string `toml:"-"`
@@ -99,6 +107,9 @@ var defaultIntervals = Intervals{
 
 // DefaultAgentPatterns are used when [agents] is missing.
 var DefaultAgentPatterns = []string{"claude", "cline"}
+
+// DefaultBotAuthors are used when [github] bot_authors is missing.
+var DefaultBotAuthors = []string{"dependabot", "renovate", "github-actions"}
 
 // DefaultIgnoredProcesses are macOS daemons that always listen on ports.
 var DefaultIgnoredProcesses = []string{
@@ -170,6 +181,9 @@ func (c *Config) applyDefaults() {
 	if c.Ports.Ignore == nil {
 		c.Ports.Ignore = DefaultIgnoredProcesses
 	}
+	if c.GitHub.BotAuthors == nil {
+		c.GitHub.BotAuthors = DefaultBotAuthors
+	}
 	if c.OllamaHost == "" {
 		c.OllamaHost = os.Getenv("OLLAMA_HOST")
 	}
@@ -236,6 +250,11 @@ func (c *Config) Validate() error {
 			errs = append(errs, errors.New("agents: empty pattern"))
 		}
 	}
+	for _, b := range c.GitHub.BotAuthors {
+		if strings.TrimSpace(b) == "" {
+			errs = append(errs, errors.New("github.bot_authors: empty author"))
+		}
+	}
 	d := c.Intervals
 	for name, v := range map[string]Duration{
 		"git": d.Git, "fetch": d.Fetch, "github": d.GitHub, "health": d.Health,
@@ -246,6 +265,22 @@ func (c *Config) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// IsBot reports whether a PR author is a bot: any "…[bot]" account, or one
+// of bot_authors with or without the suffix (GraphQL reports dependabot as
+// "dependabot", REST as "dependabot[bot]").
+func (c *Config) IsBot(login string) bool {
+	name, isApp := strings.CutSuffix(strings.ToLower(login), "[bot]")
+	if isApp {
+		return true
+	}
+	for _, b := range c.GitHub.BotAuthors {
+		if strings.EqualFold(strings.TrimSuffix(b, "[bot]"), name) {
+			return true
+		}
+	}
+	return false
 }
 
 // ProjectForPath returns the project whose path contains dir, preferring the

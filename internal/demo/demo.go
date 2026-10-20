@@ -27,6 +27,7 @@ func Config() *config.Config {
 			{Name: "landing", Path: "/demo/landing", Health: []string{"https://landing.otuletta.dev"}},
 		},
 		Agents: config.Agents{Patterns: []string{"claude", "cline"}},
+		GitHub: config.GitHubSettings{BotAuthors: config.DefaultBotAuthors},
 	}
 }
 
@@ -92,6 +93,9 @@ func github(start time.Time, el time.Duration) collector.Snapshot {
 		kdxCI = &collector.CIRun{State: collector.CISuccess, Workflow: "CI", StartedAt: start, DurationSec: 53}
 	}
 	review := pr("otuletta/odomto", 88, "Migrar a Bubble Tea v2", "grace", collector.CISuccess, 40*time.Minute, start)
+	bump := func(n int, title, checks string, age time.Duration) collector.PullRequest {
+		return pr("otuletta/odomto", n, title, "dependabot", checks, age, start)
+	}
 	return collector.GitHubSnapshot{
 		Viewer:    "otuletta",
 		RateLimit: collector.RateLimit{Limit: 5000, Remaining: 4991, Cost: 1},
@@ -99,14 +103,23 @@ func github(start time.Time, el time.Duration) collector.Snapshot {
 			{Project: "odomto", Repo: "otuletta/odomto", URL: "https://github.com/otuletta/odomto", DefaultBranch: "main",
 				CI:           &collector.CIRun{State: collector.CIFailure, Workflow: "CI", StartedAt: start.Add(-time.Hour), DurationSec: 187},
 				FailedChecks: []collector.FailedCheck{{Name: "test (macos)"}},
-				OpenPRs:      3,
+				OpenPRs:      7,
 				PRs: []collector.PullRequest{
 					review,
 					pr("otuletta/odomto", 91, "fix: timeout en health checks", "otuletta", collector.CIFailure, 15*time.Minute, start),
 					pr("otuletta/odomto", 87, "docs: arquitectura", "otuletta", collector.CISuccess, 30*time.Hour, start),
+					bump(95, "Bump vite from 6.3.5 to 7.1.0", collector.CIFailure, 2*time.Hour),
+					bump(94, "Bump zod from 3.25 to 4.1", collector.CIFailure, 26*time.Hour),
+					bump(93, "Bump @types/node from 22 to 24", collector.CISuccess, 3*24*time.Hour),
+					bump(92, "Bump actions/checkout from 4 to 5", collector.CISuccess, 6*24*time.Hour),
 				},
 				ReviewRequests: []collector.PullRequest{review}},
-			{Project: "kdx", Repo: "otuletta/kdx", URL: "https://github.com/otuletta/kdx", DefaultBranch: "main", CI: kdxCI, OpenPRs: 1,
+			{Project: "kdx", Repo: "otuletta/kdx", URL: "https://github.com/otuletta/kdx", DefaultBranch: "main",
+				CI:      &collector.CIRun{State: collector.CISuccess, Workflow: "CI", StartedAt: start.Add(-5 * time.Hour), DurationSec: 49},
+				OpenPRs: 1,
+				// kdx is checked out on feat/sparkline (see git above).
+				Branch: &collector.BranchCI{Name: "feat/sparkline", Pushed: true, CI: kdxCI, PRNumber: 12,
+					PRURL: "https://github.com/otuletta/kdx/pull/12", URL: "https://github.com/otuletta/kdx/tree/feat/sparkline"},
 				PRs: []collector.PullRequest{pr("otuletta/kdx", 12, "feat: sparkline", "otuletta", kdxCI.State, 5*time.Minute, start)}},
 			{Project: "cue", Repo: "otuletta/cue", URL: "https://github.com/otuletta/cue", DefaultBranch: "main",
 				CI: &collector.CIRun{State: collector.CISuccess, Workflow: "Release", StartedAt: start.Add(-26 * time.Hour), DurationSec: 312}},

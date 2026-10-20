@@ -1,9 +1,9 @@
 ◆ 1 Repos ●1 ●1 2 GitHub ✗1 ◉2 3 Producción ✗1 4 Local  5 Agentes ●2    12:00:00
 ────────────────────────────────────────────────────────────────────────────────
-  PROYECTO  RAMA        SYNC   CAMBIOS   STASH  HACE  ÚLTIMO COMMIT             
-› odomto    main        ↑2 ↓1  +1 ~2 ?1  ≡1       3h  feat: sparkline de latenc…
-  kdx       feat/login  ✓      ~4                20m  wip: login                
-  cue       main        ✓      limpio             2d  release 1.0               
+  PROYECTO  RAMA          SYNC   CAMBIOS   STASH  HACE  ÚLTIMO COMMIT           
+› odomto    feat/sparkl…  ↑2 ↓1  +1 ~2 ?1  ≡1       3h  feat: sparkline de late…
+  kdx       feat/login    ✓      ~4                20m  wip: login              
+  cue       main          ✓      limpio             2d  release 1.0             
 
 
 

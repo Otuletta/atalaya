@@ -237,6 +237,9 @@ func (m Model) githubPanel() panelView {
 	for i, l := range t.lines(ws) {
 		g := groups[i]
 		pv.rows = append(pv.rows, row{key: "gh:" + g.repo.Repo, selectable: true, item: g.repo, line: l})
+		if g.repo.Branch != nil {
+			pv.rows = append(pv.rows, m.branchRow(g.repo))
+		}
 		pv.rows = append(pv.rows, g.prs...)
 	}
 	others := snap.OtherReviewRequests
@@ -253,8 +256,8 @@ func (m Model) githubPanel() panelView {
 const maxPRRows = 3
 
 // prRows lists a repo's PRs under it: review requests first (they are
-// waiting on you) and always shown, other PRs up to maxPRRows. The detail
-// view has all of them.
+// waiting on you) and always shown, then other PRs up to maxPRRows, then one
+// row per bot with all its PRs. The detail view has every PR.
 func (m Model) prRows(r collector.GitHubRepo) []row {
 	requested := map[int]bool{}
 	for _, pr := range r.ReviewRequests {
@@ -276,18 +279,113 @@ func (m Model) prRows(r collector.GitHubRepo) []row {
 		return 0
 	})
 	var rows []row
-	shown := 0
+	var botOrder []string
+	bots := map[string][]collector.PullRequest{}
+	shown, more := 0, 0
 	for _, pr := range prs {
-		if !requested[pr.Number] {
-			if shown == maxPRRows {
-				rows = append(rows, row{line: sDim.Render(fmt.Sprintf("     … %d PRs más (enter en el repo)", len(prs)-len(r.ReviewRequests)-shown))})
-				break
+		switch {
+		case requested[pr.Number]:
+			rows = append(rows, m.prRow(pr, true, false))
+		case m.deps.Config.IsBot(pr.Author):
+			if _, seen := bots[pr.Author]; !seen {
+				botOrder = append(botOrder, pr.Author)
 			}
+			bots[pr.Author] = append(bots[pr.Author], pr)
+		case shown < maxPRRows:
+			rows = append(rows, m.prRow(pr, false, false))
 			shown++
+		default:
+			more++
 		}
-		rows = append(rows, m.prRow(pr, requested[pr.Number], false))
+	}
+	if more > 0 {
+		rows = append(rows, row{line: sDim.Render(fmt.Sprintf("     … %d PRs más (enter en el repo)", more))})
+	}
+	for _, author := range botOrder {
+		rows = append(rows, m.botRow(r, author, bots[author]))
 	}
 	return rows
+}
+
+// branchItem is the line of the local branch under its repo.
+type branchItem struct {
+	Repo   collector.GitHubRepo
+	Branch collector.BranchCI
+}
+
+// branchRow shows the branch checked out locally, when it is not the
+// default one: `↳ feat/x · ⟳ CI 1m20s · PR #12`.
+func (m Model) branchRow(r collector.GitHubRepo) row {
+	b := *r.Branch
+	parts := []string{sDim.Render("↳ ") + b.Name}
+	switch {
+	case !b.Pushed:
+		parts = append(parts, sDim.Render("sin publicar en GitHub"))
+	case b.CI == nil:
+		parts = append(parts, sDim.Render("sin CI"))
+	default:
+		parts = append(parts, ciText(b.CI))
+	}
+	switch {
+	case b.PRNumber > 0:
+		parts = append(parts, sBlue.Render(fmt.Sprintf("PR #%d", b.PRNumber)))
+	case b.Pushed:
+		parts = append(parts, sDim.Render("sin PR"))
+	}
+	l := "   " + strings.Join(parts, sDim.Render(" · "))
+	return row{key: "branch:" + r.Repo, selectable: true, item: branchItem{r, b}, line: fit(l, m.contentWidth())}
+}
+
+// botGroup is one row for every open PR of a bot in a repo.
+type botGroup struct {
+	Repo    string
+	RepoURL string
+	Author  string
+	PRs     []collector.PullRequest
+}
+
+// botRow summarizes a bot's PRs: `✗ dependabot · 8 PRs (8 con checks rotos)`.
+func (m Model) botRow(r collector.GitHubRepo, author string, prs []collector.PullRequest) row {
+	var failing, pending int
+	for _, pr := range prs {
+		switch pr.Checks {
+		case collector.CIFailure:
+			failing++
+		case collector.CIPending:
+			pending++
+		}
+	}
+	state, note := collector.CISuccess, ""
+	switch {
+	case failing > 0:
+		state, note = collector.CIFailure, fmt.Sprintf(" (%d con checks rotos)", failing)
+	case pending > 0:
+		state, note = collector.CIPending, fmt.Sprintf(" (%d en curso)", pending)
+	}
+	l := fmt.Sprintf("     %s %s%s", ciIcon(state), author, sDim.Render(fmt.Sprintf(" · %d PRs%s", len(prs), note)))
+	return row{key: "bots:" + r.Repo + ":" + author, selectable: true,
+		item: botGroup{Repo: r.Repo, RepoURL: r.URL, Author: author, PRs: prs}, line: fit(l, m.contentWidth())}
+}
+
+// ciText is "✓ CI 3m07s": icon, workflow and duration. Without GitHub
+// Actions (only external statuses such as Vercel) it is "✓ checks".
+func ciText(run *collector.CIRun) string {
+	s := ciIcon(run.State)
+	if run.Workflow != "" {
+		s += " " + run.Workflow
+	} else {
+		s += " checks"
+	}
+	if run.DurationSec > 0 {
+		s += " " + sDim.Render(dur(time.Duration(run.DurationSec)*time.Second))
+	}
+	return s
+}
+
+// failing reports a broken CI on the default branch or the local one.
+func failing(r collector.GitHubRepo) bool {
+	return (r.CI != nil && r.CI.State == collector.CIFailure) || len(r.FailedChecks) > 0 ||
+		(r.Branch != nil && r.Branch.CI != nil && r.Branch.CI.State == collector.CIFailure)
 }
 
 func (m Model) githubCells(r collector.GitHubRepo) []string {
@@ -296,13 +394,7 @@ func (m Model) githubCells(r collector.GitHubRepo) []string {
 	}
 	ci := sDim.Render("sin CI")
 	if r.CI != nil {
-		ci = ciIcon(r.CI.State)
-		if r.CI.Workflow != "" {
-			ci += " " + r.CI.Workflow
-		}
-		if r.CI.DurationSec > 0 {
-			ci += " " + sDim.Render(dur(time.Duration(r.CI.DurationSec)*time.Second))
-		}
+		ci = ciText(r.CI)
 	}
 	prs := sDim.Render("0")
 	if r.OpenPRs > 0 {
@@ -324,7 +416,7 @@ func (m Model) githubCells(r collector.GitHubRepo) []string {
 		fails = append(fails, sRed.Render(fmt.Sprintf("%d PR con checks rotos", n)))
 	}
 	name := r.Project
-	if (r.CI != nil && r.CI.State == collector.CIFailure) || len(r.FailedChecks) > 0 {
+	if failing(r) {
 		name = sRed.Render(name)
 	}
 	return []string{name, ci, prs, review, strings.Join(fails, sDim.Render(" · "))}
@@ -621,7 +713,7 @@ func (m Model) badge(p Panel) string {
 		if s, ok := store.Data[collector.GitHubSnapshot](m.state, "github"); ok {
 			fail, review := 0, len(s.OtherReviewRequests)
 			for _, r := range s.Repos {
-				if (r.CI != nil && r.CI.State == collector.CIFailure) || len(r.FailedChecks) > 0 {
+				if failing(r) {
 					fail++
 				}
 				review += len(r.ReviewRequests)

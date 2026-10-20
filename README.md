@@ -11,7 +11,7 @@ Sustituye el ritual de abrir GitHub, revisar el CI, comprobar que producción re
 | Panel | Contenido |
 |---|---|
 | **1 Repos** | Rama, commits adelante/atrás del remoto, cambios (staged, modificados, sin seguimiento, conflictos), stash y último commit. **Amarillo**: trabajo sin commitear. **Rojo**: desincronizado. |
-| **2 GitHub** | Último run de CI por repo (✓ ✗ ⟳ con duración), PRs abiertos con el estado de sus checks, PRs donde te piden review (◉) y checks fallidos. |
+| **2 GitHub** | Último run de CI por repo (✓ ✗ ⟳ con duración), el CI y el PR de **la rama en la que estás trabajando**, PRs abiertos con el estado de sus checks, PRs donde te piden review (◉) y checks fallidos. Los PRs de bots (dependabot, renovate…) se agrupan en una fila por bot. |
 | **3 Producción** | Health checks HTTP: código, latencia, sparkline de los últimos minutos y **días restantes del certificado TLS**. |
 | **4 Local** | Puertos en escucha mapeados a proceso y proyecto (`:3000 → node · odomto`), contenedores Docker y modelos cargados en Ollama. |
 | **5 Agentes** | Sesiones de Claude Code o Cline corriendo: en qué repo y desde hace cuánto. |
@@ -92,6 +92,9 @@ path = "~/dev/kdx"
 [agents]
 patterns = ["claude", "cline"]         # globs sobre el nombre del ejecutable; distinguen mayúsculas
 
+[github]
+bot_authors = ["dependabot", "renovate", "github-actions"]  # sus PRs van en una sola fila; las cuentas "…[bot]" siempre cuentan
+
 [ports]
 ignore = ["rapportd", "ControlCenter"] # procesos a ocultar (por defecto, demonios de macOS)
 show_ephemeral = false                 # puertos ≥ 49152 que no son de ningún proyecto
@@ -134,7 +137,7 @@ La validación informa de **todos** los errores a la vez, incluidas claves mal e
 - **Store con señal coalescente.** Los collectors nunca se bloquean esperando a la UI. La UI recibe una señal, lee una copia completa del estado y no puede perderse una actualización.
 - **Git sin efectos secundarios.** `git status --porcelain=v2 -z` con `GIT_OPTIONAL_LOCKS=0`: consultar cada 5 s nunca toma `index.lock` ni choca con tus comandos. El parser propio (`internal/gitparse`) se prueba con fixtures generados desde repos reales en cada estado (renombrado, conflicto, detached, upstream borrado…) y con fuzzing.
 - **El fetch es una fuente aparte.** Así adelante/atrás refleja el remoto y no solo tu último `git fetch`, sin frenar el sondeo de 5 s.
-- **GitHub en una sola query GraphQL**, con un alias por repo (`r0: repository(…)`, `r1: …`), construida en tiempo de ejecución con `reflect.StructOf`, porque `githubv4` deriva la query de un tipo. Cuesta 1 punto de rate limit por minuto. GraphQL no admite peticiones condicionales (ETag), así que el presupuesto se protege leyendo el campo `rateLimit` de la propia respuesta y las cabeceras `Retry-After` y `X-RateLimit-Reset`: el scheduler espera hasta el reset en lugar de insistir.
+- **GitHub en una sola query GraphQL**, con un alias por repo (`r0: repository(…)`, `r1: …`) y otro por rama local (`b0: repository(…){ ref(qualifiedName: "refs/heads/…") }`), construida en tiempo de ejecución con `reflect.StructOf`, porque `githubv4` deriva la query de un tipo y el nombre de la rama va en el tag. Cuesta 1 punto de rate limit por minuto. GraphQL no admite peticiones condicionales (ETag), así que el presupuesto se protege leyendo el campo `rateLimit` de la propia respuesta y las cabeceras `Retry-After` y `X-RateLimit-Reset`: el scheduler espera hasta el reset en lugar de insistir.
 - **CI honesto.** Se toma el último run de *cada* workflow y se muestra el más grave, así un "Dependabot Updates" verde no tapa un CI roto. Los runs programados antiguos sobre el mismo commit se ignoran.
 
 ## Desarrollo

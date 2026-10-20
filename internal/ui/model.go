@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strings"
@@ -466,6 +467,20 @@ func (m Model) open(item any) tea.Cmd {
 			return openURL(it.CI.URL) // the broken run is what you want to see
 		}
 		return openURL(it.URL + "/pulls")
+	case branchItem:
+		b := it.Branch
+		switch {
+		case b.CI != nil && b.CI.State == collector.CIFailure && b.CI.URL != "":
+			return openURL(b.CI.URL)
+		case b.PRURL != "":
+			return openURL(b.PRURL)
+		case b.Pushed:
+			return openURL(b.URL)
+		}
+		return m.statusCmd("la rama " + b.Name + " no está en GitHub todavía")
+	case botGroup:
+		q := "is:pr is:open author:app/" + strings.TrimSuffix(it.Author, "[bot]")
+		return openURL(it.RepoURL + "/pulls?q=" + url.QueryEscape(q))
 	case collector.PullRequest:
 		return openURL(it.URL)
 	case collector.Check:
@@ -487,6 +502,8 @@ func (m Model) askPull(item any) (Model, tea.Cmd) {
 		project, dir = it.Project, it.Path
 	case collector.GitHubRepo:
 		project, dir = it.Project, m.projectPath(it.Project)
+	case branchItem:
+		project, dir = it.Repo.Project, m.projectPath(it.Repo.Project)
 	default:
 		return m, m.statusCmd("p solo aplica a repos")
 	}

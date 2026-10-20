@@ -41,6 +41,7 @@ func testConfig() *config.Config {
 			{Name: "cue", Path: "/w/cue", GitHub: "otuletta/cue", Health: []string{"https://cue.dev"}},
 		},
 		Agents: config.Agents{Patterns: []string{"claude", "cline"}},
+		GitHub: config.GitHubSettings{BotAuthors: config.DefaultBotAuthors},
 	}
 }
 
@@ -57,7 +58,7 @@ func testStore() *store.Store {
 	st := store.New()
 	put := func(name string, s collector.Snapshot) { st.Put(name, s, nil, now.Add(time.Minute)) }
 	put("git", collector.GitSnapshot{Repos: []collector.Repo{
-		{Project: "odomto", Path: "/w/odomto", Branch: "main", Upstream: "origin/main", Ahead: 2, Behind: 1,
+		{Project: "odomto", Path: "/w/odomto", Branch: "feat/sparkline", Upstream: "origin/feat/sparkline", Ahead: 2, Behind: 1,
 			Changes: gitparse.Counts{Staged: 1, Unstaged: 2, Untracked: 1}, Stash: 1,
 			Files:      []collector.FileChange{{XY: "M.", Path: "api/server.go"}, {XY: ".M", Path: "web/app.tsx"}, {XY: "??", Path: "notes.md"}},
 			LastCommit: &collector.Commit{Hash: "abc1234def", Author: "Ada", Subject: "feat: sparkline de latencia", When: now.Add(-3 * time.Hour)}},
@@ -75,10 +76,16 @@ func testStore() *store.Store {
 			{Project: "odomto", Repo: "otuletta/odomto", URL: "https://github.com/otuletta/odomto", DefaultBranch: "main",
 				CI:           &collector.CIRun{State: collector.CIFailure, Workflow: "CI", URL: "https://github.com/otuletta/odomto/actions/runs/9", Commit: "abc1234", StartedAt: now.Add(-10 * time.Minute), DurationSec: 195},
 				FailedChecks: []collector.FailedCheck{{Name: "test"}},
-				OpenPRs:      2,
+				Branch: &collector.BranchCI{Name: "feat/sparkline", Pushed: true, PRNumber: 42,
+					PRURL: "https://github.com/otuletta/odomto/pull/42", URL: "https://github.com/otuletta/odomto/tree/feat/sparkline",
+					CI: &collector.CIRun{State: collector.CIPending, Workflow: "CI", StartedAt: now.Add(-80 * time.Second), DurationSec: 80}},
+				OpenPRs: 5,
 				PRs: []collector.PullRequest{
-					{Repo: "otuletta/odomto", Number: 42, Title: "feat: sparkline", URL: "https://github.com/otuletta/odomto/pull/42", Author: "otuletta", Checks: collector.CISuccess, UpdatedAt: now.Add(-2 * time.Hour)},
+					{Repo: "otuletta/odomto", Number: 42, Title: "feat: sparkline", URL: "https://github.com/otuletta/odomto/pull/42", Author: "otuletta", Checks: collector.CIPending, UpdatedAt: now.Add(-2 * time.Hour)},
 					{Repo: "otuletta/odomto", Number: 41, Title: "Revisa el parser", URL: "https://github.com/otuletta/odomto/pull/41", Author: "grace", Checks: collector.CIFailure, UpdatedAt: now.Add(-26 * time.Hour)},
+					{Repo: "otuletta/odomto", Number: 52, Title: "Bump vite from 6.0 to 7.1", URL: "https://github.com/otuletta/odomto/pull/52", Author: "dependabot", Checks: collector.CIFailure, UpdatedAt: now.Add(-3 * time.Hour)},
+					{Repo: "otuletta/odomto", Number: 51, Title: "Bump zod from 3 to 4", URL: "https://github.com/otuletta/odomto/pull/51", Author: "dependabot", Checks: collector.CIFailure, UpdatedAt: now.Add(-50 * time.Hour)},
+					{Repo: "otuletta/odomto", Number: 50, Title: "Bump actions/checkout from 4 to 5", URL: "https://github.com/otuletta/odomto/pull/50", Author: "dependabot", Checks: collector.CISuccess, UpdatedAt: now.Add(-9 * 24 * time.Hour)},
 				},
 				ReviewRequests: []collector.PullRequest{
 					{Repo: "otuletta/odomto", Number: 41, Title: "Revisa el parser", URL: "https://github.com/otuletta/odomto/pull/41", Author: "grace", Checks: collector.CIFailure, UpdatedAt: now.Add(-26 * time.Hour)},
@@ -209,6 +216,20 @@ func (h *harness) waitFor(t *testing.T, text string) {
 	}, teatest.WithDuration(3*time.Second))
 }
 
+// waitCalls waits until n actions ran. Waiting on screen text is not enough
+// when two messages differ in one character: the renderer only redraws the
+// cells that changed, so the new text never appears whole in the output.
+func (h *harness) waitCalls(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for len(h.actions.Calls()) < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("waited for %d actions, got %v", n, h.actions.Calls())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func (h *harness) final(t *testing.T) Model {
 	t.Helper()
 	if err := h.tm.Quit(); err != nil {
@@ -301,7 +322,8 @@ func TestCommitStaysReadableAt80(t *testing.T) {
 	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
 	m.width, m.height = 80, 24
 	s := screen(m)
-	if !strings.Contains(s, "feat: sparkline de laten") {
+	// The subject keeps its 24-column minimum: 23 characters and "…".
+	if !strings.Contains(s, "feat: sparkline de late…") {
 		t.Errorf("the commit subject is not readable at 80 columns:\n%s", s)
 	}
 	if strings.Contains(s, "AUTOR") {
@@ -398,19 +420,50 @@ func TestKillOnlyOnPorts(t *testing.T) {
 func TestOpen(t *testing.T) {
 	h := start(t)
 	h.keys("o") // repo → editor
-	h.waitFor(t, "abierto /w/odomto en code")
+	h.waitCalls(t, 1)
 	h.keys("2", "o") // failing CI → the broken run
-	h.waitFor(t, "actions/runs/9")
-	h.keys("j", "o") // first PR row: the review request
-	h.waitFor(t, "pull/41")
+	h.waitCalls(t, 2)
+	h.keys("j", "o") // the local branch line: its CI runs, so its PR
+	h.waitCalls(t, 3)
+	h.keys("j", "o") // then the review request
+	h.waitCalls(t, 4)
 	h.final(t)
 	want := []string{
 		"start code /w/odomto",
 		"open https://github.com/otuletta/odomto/actions/runs/9",
+		"open https://github.com/otuletta/odomto/pull/42",
 		"open https://github.com/otuletta/odomto/pull/41",
 	}
 	if got := h.actions.Calls(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestBotPRsAreGrouped(t *testing.T) {
+	h := start(t)
+	h.keys("2")
+	h.waitFor(t, "dependabot · 3 PRs (2 con checks rotos)")
+	// repo → branch → #41 (review) → #42 → dependabot
+	h.keys("j", "j", "j", "j", "o")
+	h.waitCalls(t, 1)
+	h.keys("enter")
+	h.waitFor(t, "Bump actions/checkout from 4 to 5")
+	m := h.final(t)
+	s := screen(m)
+	if !strings.Contains(s, "dependabot · otuletta/odomto (3 PRs)") {
+		t.Errorf("bot detail:\n%s", s)
+	}
+	calls := h.actions.Calls()
+	if len(calls) != 1 || !strings.HasPrefix(calls[0], "open https://github.com/otuletta/odomto/pulls?q=") {
+		t.Errorf("calls = %v", calls)
+	}
+}
+
+func TestBotPRsNotListedOneByOne(t *testing.T) {
+	m := New(Deps{Config: testConfig(), Store: testStore(), Now: func() time.Time { return now }})
+	m.width, m.height, m.panel = 120, 30, PanelGitHub
+	if s := screen(m); strings.Contains(s, "Bump vite") {
+		t.Errorf("bot PRs listed one by one:\n%s", s)
 	}
 }
 

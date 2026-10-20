@@ -103,11 +103,9 @@ func (m Model) detail(item any) string {
 			}
 			d.kv("run", ci.URL)
 		}
-		if len(it.FailedChecks) > 0 {
-			d.title("Checks fallidos")
-			for _, c := range it.FailedChecks {
-				d.line(sRed.Render("✗ "+c.Name) + "  " + sDim.Render(c.URL))
-			}
+		d.failedChecks(it.FailedChecks)
+		if it.Branch != nil {
+			m.branchDetail(&d, *it.Branch)
 		}
 		d.title(fmt.Sprintf("PRs abiertos (%d)", it.OpenPRs))
 		for _, pr := range it.PRs {
@@ -121,6 +119,20 @@ func (m Model) detail(item any) string {
 		}
 		d.title("Acciones")
 		d.line("o  abrir en el navegador    p  git pull --ff-only del repo local")
+
+	case branchItem:
+		d.title(it.Repo.Repo)
+		m.branchDetail(&d, it.Branch)
+		d.title("Acciones")
+		d.line("o  abrir el PR (o el run, si falla)    p  git pull --ff-only del repo local")
+
+	case botGroup:
+		d.title(fmt.Sprintf("%s · %s (%d PRs)", it.Author, it.Repo, len(it.PRs)))
+		for _, pr := range it.PRs {
+			d.line(fmt.Sprintf("%s #%d %s %s", ciIcon(pr.Checks), pr.Number, pr.Title, sDim.Render("· "+ago(m.now, pr.UpdatedAt))))
+		}
+		d.title("Acciones")
+		d.line("o  abrir estos PRs en el navegador")
 
 	case collector.PullRequest:
 		d.title(fmt.Sprintf("#%d %s", it.Number, it.Title))
@@ -206,6 +218,44 @@ func (m Model) detail(item any) string {
 		d.line("o  abrir el directorio en el editor")
 	}
 	return d.String()
+}
+
+// branchDetail is the local-branch section of the GitHub detail views.
+func (m Model) branchDetail(d *detailBuilder, b collector.BranchCI) {
+	d.title("Rama local: " + b.Name)
+	if !b.Pushed {
+		d.line(sDim.Render("todavía no está publicada en GitHub"))
+		return
+	}
+	d.kv("url", b.URL)
+	if ci := b.CI; ci != nil {
+		d.kv("estado", ciIcon(ci.State)+" "+ci.State)
+		d.kv("workflow", ci.Workflow)
+		d.kv("commit", ci.Commit)
+		d.kv("inicio", stamp(m.now, ci.StartedAt))
+		if ci.DurationSec > 0 {
+			d.kv("duración", dur(time.Duration(ci.DurationSec)*time.Second))
+		}
+		d.kv("run", ci.URL)
+	} else {
+		d.kv("CI", sDim.Render("sin checks"))
+	}
+	if b.PRNumber > 0 {
+		d.kv("PR", fmt.Sprintf("#%d  %s", b.PRNumber, sDim.Render(b.PRURL)))
+	} else {
+		d.kv("PR", sDim.Render("ninguno abierto"))
+	}
+	d.failedChecks(b.FailedChecks)
+}
+
+func (d *detailBuilder) failedChecks(checks []collector.FailedCheck) {
+	if len(checks) == 0 {
+		return
+	}
+	d.title("Checks fallidos")
+	for _, c := range checks {
+		d.line(sRed.Render("✗ "+c.Name) + "  " + sDim.Render(c.URL))
+	}
 }
 
 // xyStyle colors a porcelain XY code: staged in green, unstaged in yellow.
